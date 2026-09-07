@@ -16,6 +16,7 @@ const { createHub } = require('./src/ws-hub');
 const createFilesRouter = require('./src/routes/files');
 const createNotesRouter = require('./src/routes/notes');
 const createAdminRouter = require('./src/routes/admin');
+const createUpdateRouter = require('./src/routes/update');
 
 const SWEEP_INTERVAL_MS = 60 * 1000;
 
@@ -34,9 +35,11 @@ function buildApp(hub) {
   const files = createFilesRouter(hub);
   const notes = createNotesRouter(hub);
   const admin = createAdminRouter({ hub, files });
+  const update = createUpdateRouter();
   app.use(files.router);
   app.use(notes.router);
   app.use(admin.router);
+  app.use(update.router);
 
   app.get('/api/health', (req, res) => res.json({ ok: true, version: config.version }));
 

@@ -27,6 +27,7 @@ use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_updater::UpdaterExt;
 
 /// Preferred port. MeghXL's links, QR codes and bookmarks all assume it, so we
 /// only move off it if something else has already taken it.
@@ -298,6 +299,81 @@ fn show_dashboard_when_ready(app: tauri::AppHandle, port: u16) {
 }
 
 // ---------------------------------------------------------------------------
+// Updates
+// ---------------------------------------------------------------------------
+
+/// Check GitHub for a signed release, show the changelog, and — if the user
+/// agrees — download and install it in the background.
+///
+/// Only ever runs when the user picks "Check for updates…". Nothing is checked
+/// on a timer or at launch, so the app still makes no unsolicited network
+/// request. Updates are verified against the public key baked into the bundle,
+/// so an unsigned or tampered package is refused.
+fn check_for_updates(app: &tauri::AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let notify = |title: &str, body: String| {
+            let _ = app.notification().builder().title(title).body(body).show();
+        };
+
+        let updater = match app.updater() {
+            Ok(u) => u,
+            Err(e) => return notify("MeghXL", format!("Update check unavailable: {e}")),
+        };
+
+        match updater.check().await {
+            Ok(Some(update)) => {
+                let notes = update.body.clone().unwrap_or_default();
+                let version = update.version.clone();
+                let current = update.current_version.clone();
+                let prompt = if notes.trim().is_empty() {
+                    format!("MeghXL {version} is available. You have {current}.\n\nDownload and install it now?")
+                } else {
+                    format!(
+                        "MeghXL {version} is available. You have {current}.\n\nWhat's new:\n{}\n\nDownload and install it now?",
+                        notes.chars().take(1200).collect::<String>()
+                    )
+                };
+
+                let answer = app
+                    .dialog()
+                    .message(prompt)
+                    .title("Update available")
+                    .buttons(tauri_plugin_dialog::MessageDialogButtons::OkCancelCustom(
+                        "Install".into(),
+                        "Not now".into(),
+                    ))
+                    .blocking_show();
+                if !answer {
+                    return;
+                }
+
+                notify("MeghXL", format!("Downloading version {version}…"));
+                match update.download_and_install(|_, _| {}, || {}).await {
+                    Ok(()) => {
+                        let restart = app
+                            .dialog()
+                            .message("MeghXL has been updated. Restart now to use the new version?")
+                            .title("Update installed")
+                            .buttons(tauri_plugin_dialog::MessageDialogButtons::OkCancelCustom(
+                                "Restart".into(),
+                                "Later".into(),
+                            ))
+                            .blocking_show();
+                        if restart {
+                            app.restart();
+                        }
+                    }
+                    Err(e) => notify("MeghXL", format!("Update failed: {e}")),
+                }
+            }
+            Ok(None) => notify("MeghXL", "You're running the latest version.".into()),
+            Err(e) => notify("MeghXL", format!("Could not check for updates: {e}")),
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Tray
 // ---------------------------------------------------------------------------
 
@@ -305,6 +381,8 @@ fn build_tray(app: &tauri::AppHandle, port: u16) -> tauri::Result<()> {
     let open = MenuItemBuilder::with_id("open", "Open MeghXL").build(app)?;
     let console = MenuItemBuilder::with_id("console", "Host console").build(app)?;
     let copy = MenuItemBuilder::with_id("copy", "Copy network link").build(app)?;
+    let updates = MenuItemBuilder::with_id("updates", "Check for updates…").build(app)?;
+    let about = MenuItemBuilder::with_id("about", "About MeghXL").build(app)?;
     let downloads = MenuItemBuilder::with_id("downloads", "Open downloads folder").build(app)?;
     let downloads_set =
         MenuItemBuilder::with_id("downloads-set", "Change downloads folder…").build(app)?;
@@ -321,6 +399,9 @@ fn build_tray(app: &tauri::AppHandle, port: u16) -> tauri::Result<()> {
             &PredefinedMenuItem::separator(app)?,
             &downloads,
             &downloads_set,
+            &PredefinedMenuItem::separator(app)?,
+            &about,
+            &updates,
             &PredefinedMenuItem::separator(app)?,
             &autostart,
             &PredefinedMenuItem::separator(app)?,
@@ -351,6 +432,8 @@ fn build_tray(app: &tauri::AppHandle, port: u16) -> tauri::Result<()> {
                 let host = lan_ip().unwrap_or_else(|| "127.0.0.1".into());
                 let _ = app.clipboard().write_text(format!("http://{host}:{port}/"));
             }
+            "about" => show(app, "/#about"),
+            "updates" => check_for_updates(app),
             "downloads" => {
                 let dir = download_dir(app);
                 let _ = fs::create_dir_all(&dir);
@@ -390,6 +473,8 @@ fn main() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,

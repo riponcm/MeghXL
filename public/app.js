@@ -52,6 +52,7 @@ const state = {
   publicFiles: new Map(), // token -> shape
   baseUrl: location.origin,
   shareBase: location.origin,
+  notes: [],
   device: loadDevice(),
   devices: [],
   deviceCount: 1,
@@ -634,11 +635,41 @@ async function sendDm(to, text) {
 async function sendPublicNote(text) {
   try {
     const r = await fetch('/api/notes', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, fromName: state.device.name }),
     });
     if (!r.ok) throw new Error('note failed');
+    // The server echoes the note back over WebSocket, which is what renders it.
     toast('Posted to everyone', 'good');
   } catch { toast('Could not post note', 'danger'); }
+}
+
+// ---------- public messages (the shared clipboard) ----------
+function renderNotes() {
+  const list = $('#note-list');
+  list.replaceChildren();
+  for (const n of state.notes) list.append(noteCard(n));
+  $('#note-empty').hidden = state.notes.length > 0;
+}
+function noteCard(n) {
+  return h('div', { class: 'note-card dm' },
+    h('div', { class: 'dm-main' },
+      h('div', { class: 'dm-from' }, icon('message', 13), (n.fromName || 'Someone'),
+        h('span', { class: 'dm-time', text: ' · ' + fmtWhen(n.createdAt) })),
+      h('div', { class: 'note-text', text: n.text }),
+    ),
+    h('div', { class: 'note-actions' },
+      h('button', { class: 'icon-btn', type: 'button', title: 'Copy', onclick: () => copy(n.text) }, icon('link')),
+      h('button', { class: 'icon-btn danger', type: 'button', title: 'Delete for everyone', onclick: () => deleteNote(n.id) }, icon('trash')),
+    ),
+  );
+}
+async function deleteNote(id) {
+  try {
+    const r = await fetch(`/api/notes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (!r.ok) throw new Error('delete failed');
+  } catch { toast('Could not delete message', 'danger'); }
 }
 
 // ---------- websocket ----------
@@ -695,6 +726,12 @@ function connectWs() {
       addReceived(payload);
       bumpPrivate();
       toast(`${payload.fromName || 'Someone'} sent you "${payload.originalName}"`, 'good');
+    } else if (type === 'note-added') {
+      state.notes = [payload, ...state.notes.filter((n) => n.id !== payload.id)];
+      renderNotes();
+    } else if (type === 'note-removed') {
+      state.notes = state.notes.filter((n) => n.id !== payload.id);
+      renderNotes();
     } else if (type === 'dm') {
       addDm(payload);
       bumpPrivate();
@@ -724,6 +761,59 @@ function updateSideMe() { $('#side-me-name').textContent = state.device.name; }
 function switchSendTab(tab) {
   document.querySelectorAll('#send-tabs .seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.sendtab === tab));
   document.querySelectorAll('[data-tab]').forEach((el) => { el.hidden = el.dataset.tab !== tab; });
+}
+
+// ---------- about / updates ----------
+// The only outbound request MeghXL ever makes, and only on this button.
+async function checkForUpdates() {
+  const btn = $('#update-btn');
+  const status = $('#update-status');
+  const notes = $('#update-notes');
+  const link = $('#update-link');
+  btn.disabled = true;
+  status.className = 'about-tag';
+  status.textContent = 'Checking…';
+  try {
+    const res = await fetch('/api/update');
+    const d = await res.json();
+    $('#about-version').textContent = 'v' + (d.current || '');
+    if (!res.ok) {
+      status.textContent = `${d.error || 'Check failed'} — you can browse releases on GitHub instead.`;
+      return;
+    }
+    if (d.noReleases) {
+      status.className = 'about-tag';
+      status.textContent = `You're on v${d.current}. No releases have been published yet.`;
+      notes.hidden = true; link.hidden = true;
+      return;
+    }
+    if (d.updateAvailable) {
+      status.className = 'about-tag about-available';
+      status.textContent = `Version ${d.latest} is available — you have ${d.current}.`;
+      link.href = d.url;
+      link.hidden = false;
+      notes.textContent = d.notes || 'No release notes.';
+      notes.hidden = false;
+      $('#about-badge').hidden = false;
+    } else {
+      status.className = 'about-tag about-up-to-date';
+      status.textContent = `You're up to date (v${d.current}).`;
+      notes.hidden = true;
+      link.hidden = true;
+      $('#about-badge').hidden = true;
+    }
+  } catch {
+    status.textContent = 'Could not check right now — you may be offline.';
+  } finally {
+    btn.disabled = false;
+  }
+}
+function initAbout() {
+  $('#update-btn').addEventListener('click', checkForUpdates);
+  fetch('/api/health')
+    .then((r) => r.json())
+    .then((d) => { $('#about-version').textContent = 'v' + (d.version || ''); })
+    .catch(() => { /* offline: the version stays a dash */ });
 }
 
 // ---------- init ----------
@@ -791,6 +881,11 @@ async function loadInitial() {
     for (const f of files) state.publicFiles.set(f.token, f);
     renderPublic();
   } catch { /* WS will catch us up */ }
+  try {
+    const { notes } = await (await fetch('/api/notes')).json();
+    state.notes = notes || [];
+    renderNotes();
+  } catch { /* WS will catch us up */ }
   renderSent();
   renderReceived();
   renderDms();
@@ -800,11 +895,13 @@ initNav();
 initSend();
 initModal();
 initFoot();
+initAbout();
 updateSideMe();
 renderAnnounceCards();
 renderDevices();
 renderDestSelectors();
 renderStaged();
+renderNotes();
 showView('dashboard');
 loadInitial();
 revealAdminNav();

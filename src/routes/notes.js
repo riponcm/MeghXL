@@ -6,12 +6,22 @@ const { noteId } = require('../ids');
 
 const MAX_NOTE_LENGTH = 4000;
 
+const clean = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+
+/** What every device is allowed to see. The sender's IP never leaves the server. */
+const toPublicNote = (n) => ({
+  id: n.id,
+  text: n.text,
+  createdAt: n.createdAt,
+  fromName: n.fromName || null,
+});
+
 module.exports = function createNotesRouter(hub) {
   const router = express.Router();
 
   // GET /api/notes
   router.get('/api/notes', (req, res) => {
-    res.json({ notes: store.listNotes() });
+    res.json({ notes: store.listNotes().map(toPublicNote) });
   });
 
   // POST /api/notes  { text }
@@ -23,9 +33,12 @@ module.exports = function createNotesRouter(hub) {
       id: noteId(),
       text: text.slice(0, MAX_NOTE_LENGTH),
       createdAt: Date.now(),
-      author: req.ip,
+      // The device's own display name, so the board reads like a conversation.
+      // Deliberately not the IP: that would put every sender's address on
+      // every other device's screen.
+      fromName: clean(req.body.fromName, 60) || null,
     });
-    const payload = { id: note.id, text: note.text, createdAt: note.createdAt };
+    const payload = toPublicNote(note);
     hub.broadcast('note-added', payload);
     res.json(payload);
   });

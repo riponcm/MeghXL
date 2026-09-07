@@ -91,6 +91,10 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signs the update bundles. Without these the build still succeeds,
+          # it just produces no latest.json, so in-app updates stay off.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: desktop
           args: --target ${{ matrix.target }}
@@ -105,7 +109,8 @@ jobs:
             shows a SmartScreen prompt (More info → Run anyway). Building from
             source avoids both.
           releaseDraft: true
-          includeUpdaterJson: false
+          # Publishes latest.json, which the app's "Check for updates" reads.
+          includeUpdaterJson: true
 
       - name: Upload installers as artifacts
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}

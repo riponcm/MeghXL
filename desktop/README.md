@@ -55,6 +55,29 @@ machine or in a CI matrix. (The server half alone can be cross-compiled:
   folder) and never overwrites, adding `(1)`, `(2)` to the name. Navigation is
   pinned to the dashboard; any other link opens in your real browser.
 
+## Updates
+
+The app can check GitHub for a signed release, show its changelog, and install
+it — only when the user picks **Check for updates…** from the tray. Nothing
+runs on a timer or at launch.
+
+Update packages are verified against the public key in `tauri.conf.json`, so an
+unsigned or tampered package is refused. That means **release builds need the
+matching private key**:
+
+```bash
+export TAURI_SIGNING_PRIVATE_KEY="$(cat /path/to/meghxl-updater.key)"
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+npm run build
+```
+
+Without it the bundle is produced but the build exits with *"A public key has
+been found, but no private key"*. CI supplies both from repository secrets of
+the same names.
+
+> Keep that private key safe and backed up. Lose it and no existing install will
+> ever accept an update again — every user would have to reinstall by hand.
+
 ## Signing
 
 Local builds are unsigned. Distributed builds should be signed and notarized —

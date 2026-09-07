@@ -38,9 +38,20 @@ MeghXL is deliberately built to be **auditable in one sitting**:
 - **No build step, no minification, no obfuscation.** What you read is what runs.
   The frontend is plain HTML/CSS/JS in `public/`; the server is plain Node in
   `server.js` + `src/`.
-- **No telemetry, analytics, tracking, or “phone-home”.** The server makes **no
-  outbound calls to any third-party service.** It serves your files on your
-  network and (optionally) advertises an mDNS name on the LAN. That's it.
+- **No telemetry, analytics, tracking, or “phone-home”.** Nothing about you, your
+  files, your devices, or your usage is ever sent anywhere. The server serves
+  your files on your network and (optionally) advertises an mDNS name on the LAN.
+- **Exactly one outbound request exists, and only when you ask for it.** Pressing
+  **Check for updates** (About page, or the desktop app's tray) performs a single
+  `GET` to the GitHub releases API to compare version numbers. It sends no
+  identifiers, no file names, no usage data — nothing but the request itself, and
+  the answer is cached for an hour. Never happens on a timer, at launch, or in
+  the background. The code is one short file, `src/routes/update.js`; read it.
+  If you want it gone, delete that route — nothing else depends on it.
+- **Desktop updates are signature-verified.** The app only installs a package
+  signed with the project's private key, checked against the public key compiled
+  into the bundle. A tampered or unsigned package is refused, so a compromised
+  download host cannot push you malicious code.
 - **No dynamic code execution.** No `eval`, no `new Function`, no `child_process`
   at runtime. (The only shell scripts in the repo are the opt-in auto-start
   helpers under `scripts/`, which run **only** when you explicitly call

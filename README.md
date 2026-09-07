@@ -71,6 +71,11 @@ caps or cloud middlemen.
 - **Always-on mode** — one command makes a "mother PC" serve on every boot.
 - **Host console** — a private `/admin` page on the host PC to see connected
   devices, block or unblock them, broadcast announcements, and manage files.
+- **Shared message board** — post a note to everyone on the network, or send a
+  private message to one device. Both appear live.
+- **In-app updates** — the About page (and the desktop tray) can check GitHub for
+  a new release and show its changelog. The desktop app downloads and installs
+  signed updates itself. It only ever checks when you press the button.
 - **Tiny and readable** — a vanilla front-end with no build step, seven runtime
   dependencies, and a single `node server.js`.
 
@@ -274,6 +279,21 @@ A full **video tutorial is coming soon**. Sharing MeghXL with your team is the b
 <p align="center">
   <a href="https://star-history.com/#riponcm/MeghXL&Date"><img alt="Star history" src="https://api.star-history.com/svg?repos=riponcm/MeghXL&type=Date" width="62%"></a>
 </p>
+
+## Updates and privacy
+
+MeghXL makes **one** outbound request in its entire lifetime, and only when you
+press **Check for updates** in the About page or the desktop tray: a single `GET`
+to the GitHub releases API to compare version numbers. It sends no identifiers,
+no filenames and no usage data, and the answer is cached for an hour. Nothing
+runs on a timer or at launch.
+
+Desktop updates are **signature-verified** — the app installs only a package
+signed with the project's key, checked against the public key compiled into the
+bundle, so a compromised download cannot push you malicious code.
+
+Don't want it at all? Delete `src/routes/update.js` and its `app.use` line in
+`server.js`. Nothing else depends on it.
 
 ## Security and trust model
 

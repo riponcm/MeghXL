@@ -40,6 +40,18 @@
       "nsis": {
         "installMode": "currentUser"
       }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM0MjVCQzgzMTVEMDdEMDMKUldRRGZkQVZnN3dseEVQOEJTMU1LL3EvMmc4SGJnWE5pQW45M3FDWXZnUEtzWHg3QjdkL1hnelMK",
+      "endpoints": [
+        "https://github.com/riponcm/MeghXL/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }
