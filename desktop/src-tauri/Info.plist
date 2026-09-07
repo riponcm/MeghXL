@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- The dashboard is served by MeghXL's own server on this machine and on the
+       LAN, over plain HTTP. Allow the webview to load it. -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+  </dict>
+  <!-- macOS 15+ asks the user once before an app may talk to the local network. -->
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>MeghXL shares files with the other devices on your local network.</string>
+</dict>
+</plist>

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MeghXL",
+  "version": "1.0.0",
+  "identifier": "com.matily.meghxl",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "category": "Utility",
+    "shortDescription": "Local-network file transfer",
+    "longDescription": "MeghXL turns this computer into a private file-transfer hub for your local network. Drop a file and every device on the same Wi-Fi can grab it from a browser \u2014 no accounts, no cloud, no size limits.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/meghxl-server"
+    ],
+    "resources": [
+      "resources/public/**/*"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

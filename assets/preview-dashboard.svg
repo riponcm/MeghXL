@@ -1,0 +1,116 @@
+<svg viewBox="0 0 1200 780" width="1200" height="780" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6366f1"/><stop offset="1" stop-color="#a855f7"/></linearGradient>
+    <clipPath id="win"><rect width="1200" height="780" rx="14"/></clipPath>
+  </defs>
+  <g clip-path="url(#win)">
+    <rect width="1200" height="780" fill="#0d0d12"/>
+
+    <!-- browser chrome -->
+    <rect width="1200" height="42" fill="#17171f"/>
+    <circle cx="22" cy="21" r="5" fill="#ff5f57"/><circle cx="40" cy="21" r="5" fill="#febc2e"/><circle cx="58" cy="21" r="5" fill="#28c840"/>
+    <rect x="360" y="10" width="480" height="22" rx="11" fill="#0d0d12"/>
+    <text x="600" y="26" text-anchor="middle" font-size="12.5" fill="#8a90a0">meghxl.local:3000</text>
+
+    <!-- app topbar -->
+    <rect y="42" width="1200" height="58" fill="#111118"/>
+    <line x1="0" y1="100" x2="1200" y2="100" stroke="rgba(255,255,255,0.07)"/>
+    <g transform="translate(24,57)">
+      <rect width="30" height="30" rx="8" fill="url(#g)"/>
+      <path d="M7 15 Q15 18 23 15 L21 20 Q15 23 9 20 Z" fill="#fff"/>
+      <path d="M15 7 L11 17 L19 17 Z" fill="#fff"/>
+    </g>
+    <text x="64" y="78" font-size="19" font-weight="800" fill="#eef0f6">MeghXL</text>
+    <g transform="translate(980,58)">
+      <rect width="104" height="28" rx="14" fill="rgba(52,211,153,0.12)" stroke="rgba(52,211,153,0.35)"/>
+      <circle cx="18" cy="14" r="4" fill="#34d399"/><text x="34" y="19" font-size="13" fill="#cdeee0">3 online</text>
+    </g>
+    <g transform="translate(1096,58)"><rect width="80" height="28" rx="14" fill="url(#g)"/><text x="40" y="19" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">Go public</text></g>
+
+    <!-- dropzone -->
+    <g transform="translate(32,124)">
+      <rect width="740" height="172" rx="16" fill="#14141b" stroke="#6366f1" stroke-width="2" stroke-dasharray="7 7"/>
+      <g transform="translate(338,34)" fill="#aab0ff">
+        <circle cx="32" cy="30" r="13"/><circle cx="18" cy="36" r="9"/><circle cx="46" cy="36" r="9"/><rect x="12" y="34" width="40" height="12" rx="6"/>
+        <rect x="29" y="22" width="6" height="22" rx="3" fill="#0d0d12"/><polygon points="32,12 22,26 42,26" fill="#0d0d12"/>
+      </g>
+      <text x="370" y="118" text-anchor="middle" font-size="20" font-weight="700" fill="#e7e8ee">Drop files here to share</text>
+      <text x="370" y="142" text-anchor="middle" font-size="13.5" fill="#9aa0ac">or click to browse  ·  paste from clipboard</text>
+    </g>
+    <!-- visibility toggle -->
+    <g transform="translate(32,312)">
+      <rect width="200" height="34" rx="9" fill="#1b1b23"/>
+      <rect x="3" y="3" width="98" height="28" rx="7" fill="url(#g)"/>
+      <text x="52" y="22" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">Public</text>
+      <text x="150" y="22" text-anchor="middle" font-size="13" fill="#9aa0ac">Private</text>
+    </g>
+    <text x="610" y="334" font-size="13" fill="#9aa0ac" text-anchor="end">Max 500 MB · streamed to disk</text>
+
+    <!-- shared files -->
+    <text x="32" y="384" font-size="15" font-weight="700" fill="#cdd1db">Shared files</text>
+    <text x="120" y="384" font-size="13" fill="#7d8390">4</text>
+    <g transform="translate(32,398)">
+      <!-- rows -->
+      <g>
+        <rect width="740" height="62" rx="12" fill="#15151c"/>
+        <rect x="16" y="16" width="42" height="30" rx="6" fill="#ef4444"/><text x="37" y="36" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">PDF</text>
+        <text x="74" y="30" font-size="14.5" font-weight="600" fill="#e7e8ee">Q3-Financials.pdf</text>
+        <text x="74" y="48" font-size="12" fill="#8b91a0">20 B · just now · public</text>
+        <g transform="translate(600,18)" fill="none" stroke="#aab0c0" stroke-width="1.8"><rect x="0" y="2" width="22" height="22" rx="5"/><rect x="28" y="2" width="22" height="22" rx="5"/><path d="M58 4 v14 M52 12 l6 6 6 -6" stroke-linecap="round"/></g>
+      </g>
+      <g transform="translate(0,70)">
+        <rect width="740" height="62" rx="12" fill="#15151c"/>
+        <rect x="16" y="16" width="42" height="30" rx="6" fill="#8b5cf6"/><text x="37" y="36" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">MP4</text>
+        <text x="74" y="30" font-size="14.5" font-weight="600" fill="#e7e8ee">product-demo.mp4</text>
+        <text x="74" y="48" font-size="12" fill="#8b91a0">8 MB · 1m ago · public</text>
+        <g transform="translate(600,18)" fill="none" stroke="#aab0c0" stroke-width="1.8"><rect x="0" y="2" width="22" height="22" rx="5"/><rect x="28" y="2" width="22" height="22" rx="5"/><path d="M58 4 v14 M52 12 l6 6 6 -6" stroke-linecap="round"/></g>
+      </g>
+      <g transform="translate(0,140)">
+        <rect width="740" height="62" rx="12" fill="#15151c"/>
+        <rect x="16" y="16" width="42" height="30" rx="6" fill="#0ea5e9"/><text x="37" y="36" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">FIG</text>
+        <text x="74" y="30" font-size="14.5" font-weight="600" fill="#e7e8ee">design-system.fig</text>
+        <text x="74" y="48" font-size="12" fill="#8b91a0">420 KB · 3m ago · public</text>
+        <g transform="translate(600,18)" fill="none" stroke="#aab0c0" stroke-width="1.8"><rect x="0" y="2" width="22" height="22" rx="5"/><rect x="28" y="2" width="22" height="22" rx="5"/><path d="M58 4 v14 M52 12 l6 6 6 -6" stroke-linecap="round"/></g>
+      </g>
+      <g transform="translate(0,210)">
+        <rect width="740" height="62" rx="12" fill="#15151c"/>
+        <rect x="16" y="16" width="42" height="30" rx="6" fill="#22c55e"/><text x="37" y="36" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">MD</text>
+        <text x="74" y="30" font-size="14.5" font-weight="600" fill="#e7e8ee">release-notes.md</text>
+        <text x="74" y="48" font-size="12" fill="#8b91a0">96 B · 4m ago · public</text>
+        <g transform="translate(600,18)" fill="none" stroke="#aab0c0" stroke-width="1.8"><rect x="0" y="2" width="22" height="22" rx="5"/><rect x="28" y="2" width="22" height="22" rx="5"/><path d="M58 4 v14 M52 12 l6 6 6 -6" stroke-linecap="round"/></g>
+      </g>
+    </g>
+
+    <!-- right sidebar: QR join -->
+    <g transform="translate(804,124)">
+      <rect width="364" height="300" rx="16" fill="#14141b" stroke="rgba(255,255,255,0.07)"/>
+      <text x="24" y="36" font-size="15" font-weight="700" fill="#cdd1db">Scan to join</text>
+      <g transform="translate(112,58)">
+        <rect width="140" height="140" rx="10" fill="#fff"/>
+        <g fill="#0d0d12">
+          <rect x="14" y="14" width="30" height="30"/><rect x="20" y="20" width="18" height="18" fill="#fff"/><rect x="25" y="25" width="8" height="8" fill="#0d0d12"/>
+          <rect x="96" y="14" width="30" height="30"/><rect x="102" y="20" width="18" height="18" fill="#fff"/><rect x="107" y="25" width="8" height="8" fill="#0d0d12"/>
+          <rect x="14" y="96" width="30" height="30"/><rect x="20" y="102" width="18" height="18" fill="#fff"/><rect x="25" y="107" width="8" height="8" fill="#0d0d12"/>
+          <rect x="54" y="16" width="6" height="6"/><rect x="66" y="16" width="6" height="6"/><rect x="54" y="28" width="6" height="6"/><rect x="78" y="22" width="6" height="6"/>
+          <rect x="54" y="54" width="6" height="6"/><rect x="66" y="60" width="6" height="6"/><rect x="78" y="54" width="6" height="6"/><rect x="90" y="66" width="6" height="6"/><rect x="102" y="54" width="6" height="6"/>
+          <rect x="54" y="78" width="6" height="6"/><rect x="66" y="84" width="6" height="6"/><rect x="54" y="96" width="6" height="6"/><rect x="60" y="108" width="6" height="6"/>
+          <rect x="78" y="90" width="6" height="6"/><rect x="90" y="96" width="6" height="6"/><rect x="102" y="90" width="6" height="6"/><rect x="108" y="102" width="6" height="6"/>
+          <rect x="90" y="78" width="6" height="6"/><rect x="78" y="102" width="6" height="6"/>
+        </g>
+      </g>
+      <text x="182" y="228" text-anchor="middle" font-size="14" font-weight="600" fill="#e7e8ee">meghxl.local:3000</text>
+      <text x="182" y="250" text-anchor="middle" font-size="12.5" fill="#8b91a0">meghxl.local:3000</text>
+      <text x="182" y="278" text-anchor="middle" font-size="11.5" fill="#7d8390">Same Wi-Fi · no app needed</text>
+    </g>
+    <!-- shared clipboard card -->
+    <g transform="translate(804,440)">
+      <rect width="364" height="172" rx="16" fill="#14141b" stroke="rgba(255,255,255,0.07)"/>
+      <text x="24" y="36" font-size="15" font-weight="700" fill="#cdd1db">Shared clipboard</text>
+      <rect x="24" y="50" width="316" height="64" rx="9" fill="#1b1b23"/>
+      <text x="38" y="78" font-size="13" fill="#c7ccda">Wi-Fi: Office-5G / guest2026</text>
+      <text x="38" y="98" font-size="13" fill="#8b91a0">https://figma.com/file/design-system</text>
+      <text x="24" y="142" font-size="12" fill="#7d8390">Notes sync live across every device</text>
+    </g>
+  </g>
+  <rect x="0.5" y="0.5" width="1199" height="779" rx="14" fill="none" stroke="rgba(255,255,255,0.10)"/>
+</svg>

@@ -1,0 +1,123 @@
+# Builds the MeghXL desktop app for every supported platform.
+#
+# Push a tag (v1.1.0) to produce a DRAFT GitHub release with all four
+# installers attached; run it manually to get the same builds as downloadable
+# artifacts without publishing anything.
+#
+# Tauri cannot cross-compile between operating systems, so each target builds
+# on its own runner. The Node server is compiled to a self-contained binary by
+# Bun first, then bundled as a Tauri sidecar.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS (Apple Silicon)
+            os: macos-14
+            target: aarch64-apple-darwin
+          - label: macOS (Intel)
+            os: macos-13
+            target: x86_64-apple-darwin
+          - label: Windows (x64)
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - label: Linux (x64)
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # WebKitGTK is the webview Tauri uses on Linux; libxdo backs the tray.
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            patchelf \
+            build-essential \
+            file
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+          key: ${{ matrix.target }}
+
+      # The server's own dependencies — Bun bundles these into the sidecar.
+      - name: Install server dependencies
+        run: npm ci
+
+      - name: Install desktop tooling
+        run: npm ci
+        working-directory: desktop
+
+      # Compiles server.js into one executable named for the target triple and
+      # stages public/ beside it, which is what the bundler expects to find.
+      - name: Compile the server sidecar
+        shell: bash
+        run: bash desktop/scripts/build-server.sh ${{ matrix.target }}
+
+      - name: Build and bundle
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: desktop
+          args: --target ${{ matrix.target }}
+          # Only set on a tag push, which is what makes tauri-action publish.
+          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          releaseName: MeghXL __VERSION__
+          releaseBody: |
+            Download the build for your platform below.
+
+            These builds are **unsigned**: macOS shows "unidentified developer"
+            (right-click the app and choose Open the first time) and Windows
+            shows a SmartScreen prompt (More info → Run anyway). Building from
+            source avoids both.
+          releaseDraft: true
+          includeUpdaterJson: false
+
+      - name: Upload installers as artifacts
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: meghxl-${{ matrix.target }}
+          if-no-files-found: error
+          path: |
+            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
+            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.app
+            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
+            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
+            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
+            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
+            desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.rpm

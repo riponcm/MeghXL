@@ -1,0 +1,15 @@
+{
+  "name": "meghxl-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Native desktop shell for MeghXL (Tauri) — runs the server and shows the dashboard in a real app window.",
+  "scripts": {
+    "server": "bash scripts/build-server.sh",
+    "dev": "npm run server && tauri dev",
+    "build": "npm run server && tauri build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.1"
+  }
+}

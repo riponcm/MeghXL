@@ -1,0 +1,55 @@
+{
+  "name": "meghxl",
+  "version": "1.0.0",
+  "description": "MeghXL — self-hosted file transfer for your local network. Drop any file, any size; anyone on the LAN downloads it from a browser via link or QR. No cloud, no accounts, no size limits — private by default, with optional one-click internet sharing. Built for offices, teams, and large networks.",
+  "type": "commonjs",
+  "main": "server.js",
+  "bin": {
+    "meghxl": "server.js"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test",
+    "app:desktop": "npm --prefix desktop run build",
+    "autostart:install": "bash scripts/install-autostart.sh",
+    "autostart:uninstall": "bash scripts/uninstall-autostart.sh"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "file-transfer",
+    "file-sharing",
+    "lan",
+    "local-network",
+    "intranet",
+    "office",
+    "enterprise",
+    "self-hosted",
+    "airdrop",
+    "nearby-share",
+    "wifi-transfer",
+    "qr",
+    "mdns",
+    "p2p",
+    "cross-platform",
+    "drag-and-drop",
+    "dashboard",
+    "meghxl"
+  ],
+  "license": "MIT",
+  "author": "",
+  "dependencies": {
+    "bonjour-service": "^1.4.0",
+    "express": "^5.2.1",
+    "mime-types": "^3.0.2",
+    "multer": "^2.1.1",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "supertest": "^7.0.0"
+  }
+}

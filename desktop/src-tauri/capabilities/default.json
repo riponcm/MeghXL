@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The desktop shell drives everything from Rust; the dashboard itself needs no Tauri APIs.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

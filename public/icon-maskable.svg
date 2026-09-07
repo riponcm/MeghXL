@@ -1,0 +1,16 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="MeghXL">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#a855f7"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <!-- boat scaled to ~80% safe zone, centered -->
+  <g transform="translate(256 262) scale(0.8) translate(-256 -262)">
+    <path d="M150 250 Q256 300 362 250 L338 320 Q256 352 174 320 Z" fill="#ffffff"/>
+    <path d="M256 162 L214 280 L298 280 Z" fill="#ffffff"/>
+    <line x1="256" y1="162" x2="256" y2="280" stroke="#6d4fe0" stroke-width="6"/>
+    <path d="M156 366 q26 -17 52 0 t52 0 t52 0" fill="none" stroke="#ffffff" stroke-width="9" stroke-linecap="round" opacity="0.92"/>
+  </g>
+</svg>

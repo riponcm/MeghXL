@@ -1,0 +1,97 @@
+<svg viewBox="0 0 1200 420" width="1200" height="420" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" role="img" aria-label="MeghXL — transfer anything across your local network">
+  <defs>
+    <linearGradient id="heroBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b0b12"/>
+      <stop offset="0.55" stop-color="#12101e"/>
+      <stop offset="1" stop-color="#0b0b12"/>
+    </linearGradient>
+    <linearGradient id="gMain" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#818cf8"/><stop offset="1" stop-color="#c084fc"/>
+    </linearGradient>
+    <linearGradient id="gCyan" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#6366f1"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#6d4fe0" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#6d4fe0" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="card"><rect width="1200" height="420" rx="24"/></clipPath>
+  </defs>
+
+  <g clip-path="url(#card)">
+    <rect width="1200" height="420" fill="url(#heroBg)"/>
+    <circle cx="930" cy="215" r="200" fill="url(#glow)"/>
+
+    <!-- ===== left: wordmark ===== -->
+    <text x="70" y="178" font-size="92" font-weight="800" fill="#f7f8fc" letter-spacing="-2">Megh<tspan fill="url(#gMain)">XL</tspan></text>
+    <text x="74" y="228" font-size="27" font-weight="500" fill="#aeb4c6">Transfer anything across your local network.</text>
+
+    <g font-size="15" font-weight="600" fill="#c7ccda" text-anchor="middle">
+      <g><rect x="74"  y="258" width="96"  height="34" rx="17" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.14)"/><text x="122" y="280">Instant</text></g>
+      <g><rect x="180" y="258" width="96"  height="34" rx="17" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.14)"/><text x="228" y="280">Private</text></g>
+      <g><rect x="286" y="258" width="112" height="34" rx="17" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.14)"/><text x="342" y="280">No cloud</text></g>
+      <g><rect x="408" y="258" width="108" height="34" rx="17" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.14)"/><text x="462" y="280">Any size</text></g>
+    </g>
+
+    <!-- ===== right: animated scene ===== -->
+    <!-- pulsing broadcast rings -->
+    <g transform="translate(930 232)" fill="none" stroke="url(#gCyan)" stroke-width="2">
+      <circle r="70" opacity="0">
+        <animate attributeName="r" values="40;150" dur="3.6s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0.5;0" dur="3.6s" repeatCount="indefinite"/>
+      </circle>
+      <circle r="70" opacity="0">
+        <animate attributeName="r" values="40;150" dur="3.6s" begin="1.8s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0.5;0" dur="3.6s" begin="1.8s" repeatCount="indefinite"/>
+      </circle>
+    </g>
+
+    <!-- floating files lifting off (sending) -->
+    <g>
+      <g opacity="0">
+        <rect x="-12" y="-15" width="26" height="32" rx="4" fill="#eef0ff"/>
+        <rect x="-12" y="-15" width="26" height="9" rx="4" fill="#c084fc"/>
+        <animateTransform attributeName="transform" type="translate" values="905 200; 905 120" dur="2.8s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.7;1" dur="2.8s" repeatCount="indefinite"/>
+      </g>
+      <g opacity="0">
+        <rect x="-11" y="-13" width="24" height="29" rx="4" fill="#eef0ff"/>
+        <rect x="-11" y="-13" width="24" height="8" rx="4" fill="#22d3ee"/>
+        <animateTransform attributeName="transform" type="translate" values="958 205; 958 130" dur="2.8s" begin="0.9s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.7;1" dur="2.8s" begin="0.9s" repeatCount="indefinite"/>
+      </g>
+      <g opacity="0">
+        <rect x="-10" y="-12" width="22" height="27" rx="4" fill="#eef0ff"/>
+        <rect x="-10" y="-12" width="22" height="8" rx="4" fill="#818cf8"/>
+        <animateTransform attributeName="transform" type="translate" values="930 195; 930 110" dur="2.8s" begin="1.8s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.7;1" dur="2.8s" begin="1.8s" repeatCount="indefinite"/>
+      </g>
+    </g>
+
+    <!-- paper boat (bob + rock) -->
+    <g transform="translate(930 250)">
+      <g>
+        <animateTransform attributeName="transform" type="translate" values="0 0; 0 -8; 0 0" dur="3.4s" repeatCount="indefinite" calcMode="spline" keyTimes="0;0.5;1" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/>
+        <g>
+          <animateTransform attributeName="transform" type="rotate" values="-2.5;2.5;-2.5" dur="5s" repeatCount="indefinite" calcMode="spline" keyTimes="0;0.5;1" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/>
+          <path d="M-95 -2 Q0 28 95 -2 L74 44 Q0 62 -74 44 Z" fill="url(#gCyan)"/>
+          <path d="M0 -80 L-40 20 L40 20 Z" fill="url(#gMain)"/>
+          <line x1="0" y1="-80" x2="0" y2="20" stroke="#0b0b12" stroke-width="3" opacity="0.8"/>
+        </g>
+      </g>
+    </g>
+
+    <!-- moving waves -->
+    <g stroke-linecap="round" fill="none">
+      <g opacity="0.85" stroke="url(#gCyan)" stroke-width="5">
+        <path d="M700 322 q20 -12 40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0"/>
+        <animateTransform attributeName="transform" type="translate" values="0 0;-80 0" dur="2.6s" repeatCount="indefinite" calcMode="linear"/>
+      </g>
+      <g opacity="0.5" stroke="#6366f1" stroke-width="5">
+        <path d="M680 342 q20 -12 40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0"/>
+        <animateTransform attributeName="transform" type="translate" values="0 0;-80 0" dur="3.8s" repeatCount="indefinite" calcMode="linear"/>
+      </g>
+    </g>
+    <rect y="356" width="1200" height="64" fill="#0b0b12"/>
+  </g>
+</svg>

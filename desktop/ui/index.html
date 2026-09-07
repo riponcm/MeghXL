@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MeghXL</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: grid;
+    place-items: center;
+    background: radial-gradient(120% 120% at 50% 0%, #1c1b2e 0%, #121220 55%, #0d0d16 100%);
+    color: #e8e8f2;
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .wrap { text-align: center; padding: 32px; }
+  .mark {
+    width: 84px; height: 84px; margin: 0 auto 22px;
+    border-radius: 22px;
+    background: linear-gradient(135deg, #6366f1, #a855f7 55%, #22d3ee);
+    display: grid; place-items: center;
+    box-shadow: 0 18px 44px -18px #6366f1cc;
+    animation: bob 2.6s ease-in-out infinite;
+  }
+  .mark svg { width: 46px; height: 46px; }
+  @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+  h1 { margin: 0 0 6px; font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
+  p { margin: 0; color: #9a9ab5; font-size: 13px; }
+  .bar {
+    width: 190px; height: 3px; margin: 26px auto 0;
+    border-radius: 3px; background: #ffffff14; overflow: hidden;
+  }
+  .bar i {
+    display: block; width: 40%; height: 100%; border-radius: 3px;
+    background: linear-gradient(90deg, #6366f1, #22d3ee);
+    animation: slide 1.3s ease-in-out infinite;
+  }
+  @keyframes slide { 0% { transform: translateX(-110%); } 100% { transform: translateX(360%); } }
+  .err { display: none; margin-top: 22px; color: #fca5a5; font-size: 12.5px; max-width: 320px; }
+  body.failed .bar { display: none; }
+  body.failed .err { display: block; }
+  body.failed .mark { animation: none; filter: saturate(0.4); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 15l9-10 9 10"></path>
+        <path d="M3 15c2 1.6 4 1.6 6 0s4-1.6 6 0 4 1.6 6 0"></path>
+        <path d="M3 19c2 1.6 4 1.6 6 0s4-1.6 6 0 4 1.6 6 0"></path>
+      </svg>
+    </div>
+    <h1>MeghXL</h1>
+    <p id="msg">Starting your local transfer hub…</p>
+    <div class="bar"><i></i></div>
+    <p class="err" id="err"></p>
+  </div>
+  <script>
+    // The Rust shell navigates this window to the dashboard once the server is
+    // listening, and calls window.__meghxlFailed(message) if it never comes up.
+    window.__meghxlFailed = function (message) {
+      document.body.classList.add('failed');
+      document.getElementById('msg').textContent = 'Could not start the server';
+      document.getElementById('err').textContent = message || 'Unknown error.';
+    };
+  </script>
+</body>
+</html>
