@@ -49,7 +49,7 @@
   },
   "homepage": "https://matily.org/meghxl/",
   "dependencies": {
-    "bonjour-service": "^1.4.0",
+    "bonjour-service": "^1.4.4",
     "express": "^5.2.1",
     "mime-types": "^3.0.2",
     "multer": "^2.1.1",
