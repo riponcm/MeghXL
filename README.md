@@ -3,14 +3,11 @@
 </p>
 
 <p align="center">
-  <a href="./LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-6366f1.svg"></a>
-  <img alt="Node 18+" src="https://img.shields.io/badge/node-18%2B-6366f1.svg">
-  <img alt="Built with Node.js + Express" src="https://img.shields.io/badge/built%20with-Node.js%20%2B%20Express-6366f1.svg">
-  <img alt="Self-hosted" src="https://img.shields.io/badge/self--hosted-yes-a855f7.svg">
-  <img alt="Zero dependencies to receive" src="https://img.shields.io/badge/receiver-just%20a%20browser-22d3ee.svg">
+  <a href="https://github.com/riponcm/MeghXL/releases"><img alt="Total downloads" src="https://img.shields.io/github/downloads/riponcm/MeghXL/total?label=downloads&color=6366f1"></a>
+  <a href="https://github.com/riponcm/MeghXL/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/riponcm/MeghXL?label=release&color=a855f7"></a>
   <a href="https://github.com/riponcm/MeghXL/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/riponcm/MeghXL/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="./SECURITY.md"><img alt="Security policy" src="https://img.shields.io/badge/security-policy-6366f1.svg"></a>
-  <a href="#contributing"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-22d3ee.svg"></a>
+  <a href="./LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-6366f1.svg"></a>
+  <a href="./SECURITY.md"><img alt="Security policy" src="https://img.shields.io/badge/security-policy-22d3ee.svg"></a>
   <a href="https://github.com/riponcm/MeghXL/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/riponcm/MeghXL?style=social"></a>
 </p>
 
@@ -269,13 +266,11 @@ desktop apps** drop.
   <a href="https://github.com/riponcm/MeghXL/watchers"><img alt="Watch this repo" src="https://img.shields.io/github/watchers/riponcm/MeghXL?style=for-the-badge&logo=github&color=a855f7&labelColor=14141a"></a>
   &nbsp;
   <a href="https://github.com/riponcm/MeghXL/network/members"><img alt="Fork this repo" src="https://img.shields.io/github/forks/riponcm/MeghXL?style=for-the-badge&logo=github&color=22d3ee&labelColor=14141a"></a>
+  &nbsp;
+  <a href="https://github.com/riponcm/MeghXL/releases"><img alt="Total downloads" src="https://img.shields.io/github/downloads/riponcm/MeghXL/total?style=for-the-badge&logo=github&label=downloads&color=36d399&labelColor=14141a"></a>
 </p>
 
 A full **video tutorial is coming soon**. Sharing MeghXL with your team is the best thanks.
-
-<p align="center">
-  <a href="https://star-history.com/#riponcm/MeghXL&Date"><img alt="Star history" src="https://api.star-history.com/svg?repos=riponcm/MeghXL&type=Date" width="62%"></a>
-</p>
 
 ## Updates and privacy
 
@@ -341,6 +336,11 @@ in a few minutes.
 
 **MeghXL** is another open-source project from **Matily** — built with care on
 Node.js and Express, with a vanilla, build-free front-end.
+
+Development memory was kept with **[projectmem](https://github.com/riponcm/projectmem)**
+([projectmem.dev](https://projectmem.dev)) — local-first memory for AI coding
+agents, which recorded the decisions, gotchas and failed approaches behind this
+codebase so they were not repeated.
 
 If MeghXL is useful to you, please **star and share** the repo. Contributions,
 issues, and ideas are always welcome.
