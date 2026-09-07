@@ -37,7 +37,7 @@ module.exports = {
   mdnsEnabled: process.env.MDNS !== 'off',
   mdnsName,
   // Optional: PCs (by LAN IP) that always get the admin console — every browser
-  // on that PC included. e.g. ADMIN_IP=192.168.1.50,192.168.1.51
+  // on that PC included. e.g. ADMIN_IP=192.168.x.x,192.168.x.y
   adminIps: (process.env.ADMIN_IP || '')
     .split(',')
     .map((s) => s.trim().replace(/^::ffff:/, ''))

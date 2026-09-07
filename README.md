@@ -136,7 +136,7 @@ The terminal prints your network URL and a scannable QR code:
   |  MeghXL is running                          |
   |                                             |
   |  On this computer:  http://localhost:3000   |
-  |  On your network:   http://192.168.1.42:3000|
+  |  On your network:   http://192.168.x.x:3000 |
   |  Friendly name:     http://meghxl.local:3000|
   |                                             |
   |  Scan to open on your phone:  [QR code]     |
