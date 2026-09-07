@@ -1,7 +1,7 @@
 {
   "name": "meghxl",
   "version": "1.0.0",
-  "description": "MeghXL — self-hosted file transfer for your local network. Drop any file, any size; anyone on the LAN downloads it from a browser via link or QR. No cloud, no accounts, no size limits — private by default, with optional one-click internet sharing. Built for offices, teams, and large networks.",
+  "description": "MeghXL \u2014 self-hosted file transfer for your local network. Drop any file, any size; anyone on the LAN downloads it from a browser via link or QR. No cloud, no accounts, no size limits, LAN-only by design. Built for offices, teams, and large networks.",
   "type": "commonjs",
   "main": "server.js",
   "bin": {
@@ -39,7 +39,15 @@
     "meghxl"
   ],
   "license": "Apache-2.0",
-  "author": "",
+  "author": "Matily (https://matily.org)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/riponcm/MeghXL.git"
+  },
+  "bugs": {
+    "url": "https://github.com/riponcm/MeghXL/issues"
+  },
+  "homepage": "https://matily.org/meghxl/",
   "dependencies": {
     "bonjour-service": "^1.4.0",
     "express": "^5.2.1",

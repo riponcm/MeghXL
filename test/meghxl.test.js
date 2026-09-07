@@ -153,7 +153,7 @@ test('host can post an announcement that appears in state', async () => {
   assert.ok(state.body.announcements.some((a) => a.text === 'hello team'));
 });
 
-test('only the host PC is admin: a forwarded/other-device request is denied (tunnel off)', async () => {
+test('only the host PC is admin: a forwarded/other-device request is denied', async () => {
   // A request carrying a forwarding header is not the host machine, so even on a
   // quiet LAN it must NOT get the console — other devices see the normal app.
   const r = await request(app).get('/api/admin/state').set('X-Forwarded-For', '203.0.113.99');

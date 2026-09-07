@@ -1,0 +1,4 @@
+# MeghXL is a private dashboard for a local network. If it is ever reached
+# through a reverse proxy or VPN with a public hostname, it must not be indexed.
+User-agent: *
+Disallow: /
