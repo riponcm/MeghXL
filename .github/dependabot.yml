@@ -1,0 +1,26 @@
+# MeghXL's pitch is that you can audit it in ten minutes. That only stays true
+# if its dependencies don't quietly rot, so all three ecosystems are watched.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    labels: ["dependencies"]
+
+  - package-ecosystem: npm
+    directory: "/desktop"
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "desktop"]
+
+  - package-ecosystem: cargo
+    directory: "/desktop/src-tauri"
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "desktop"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule: { interval: monthly }
+    labels: ["dependencies", "ci"]

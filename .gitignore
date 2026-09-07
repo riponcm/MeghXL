@@ -38,6 +38,16 @@ desktop/src-tauri/target/
 desktop/src-tauri/binaries/
 desktop/src-tauri/resources/
 desktop/src-tauri/gen/
+# `tauri icon` also emits Microsoft Store / UWP tiles. tauri.conf.json declares
+# only five icons and this project ships NSIS/MSI, so the tiles are dead weight.
+desktop/src-tauri/icons/Square*Logo.png
+desktop/src-tauri/icons/StoreLogo.png
+desktop/src-tauri/icons/android/
+desktop/src-tauri/icons/ios/
+
+# Marketing collateral lives with the brand, not the source. YouTube thumbnails
+# are served from img.youtube.com; social cards are uploaded in repo settings.
+assets/youtube-thumbnail.*
 *.app
 *.dmg
 *.msi

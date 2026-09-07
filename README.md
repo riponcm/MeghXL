@@ -407,6 +407,11 @@ Issues and pull requests are welcome. The codebase is intentionally small and
 dependency-light — read `server.js` and `src/` and you will have the whole picture
 in a few minutes.
 
+Start with **[CONTRIBUTING.md](./CONTRIBUTING.md)** — it covers setup and, more
+importantly, the design constraints that are load-bearing (LAN-only, no build step,
+no telemetry, the receiver installs nothing). Release history lives in
+**[CHANGELOG.md](./CHANGELOG.md)**.
+
 ## Credits
 
 **MeghXL** is another open-source project from **Matily** — built with care on

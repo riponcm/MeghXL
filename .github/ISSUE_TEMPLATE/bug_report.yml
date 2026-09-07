@@ -1,0 +1,53 @@
+name: Bug report
+description: Something doesn't work the way it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please don't use this form for security issues —
+        see [SECURITY.md](https://github.com/riponcm/MeghXL/blob/main/SECURITY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you expect instead?
+    validations: { required: true }
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start MeghXL with…
+        2. On the other device, open…
+        3. …
+    validations: { required: true }
+  - type: dropdown
+    id: how
+    attributes:
+      label: How are you running MeghXL?
+      options:
+        - Desktop app (macOS)
+        - Desktop app (Windows)
+        - Desktop app (Linux)
+        - From source (npm start)
+      default: 0
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes:
+      label: MeghXL version
+      description: Shown on the About page, or `npm run start` output.
+      placeholder: "1.0.0"
+    validations: { required: true }
+  - type: input
+    id: devices
+    attributes:
+      label: Which devices were involved?
+      placeholder: "Host: Mac mini (Intel). Other device: Windows 11, Chrome."
+  - type: textarea
+    id: logs
+    attributes:
+      label: Any errors?
+      description: Terminal output, or the browser console (F12 → Console).
+      render: shell

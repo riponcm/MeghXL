@@ -1,0 +1,23 @@
+# Normalise line endings so a Windows contributor's checkout can't break CI.
+* text=auto eol=lf
+
+# Shell scripts and the Tauri build must stay LF — CRLF makes bash fail with
+# "bad interpreter", and that failure only shows up on someone else's machine.
+*.sh        text eol=lf
+*.js        text eol=lf
+*.json      text eol=lf
+*.rs        text eol=lf
+*.yml       text eol=lf
+*.md        text eol=lf
+
+# Binary assets: never diffed, never converted.
+*.png       binary
+*.icns      binary
+*.ico       binary
+*.jpg       binary
+*.gif       binary
+
+# Keep GitHub's language bar honest — lockfiles aren't code we wrote.
+package-lock.json  linguist-generated=true
+desktop/package-lock.json linguist-generated=true
+desktop/src-tauri/Cargo.lock linguist-generated=true
