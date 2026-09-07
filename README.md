@@ -3,12 +3,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/riponcm/MeghXL/releases"><img alt="Total downloads" src="https://img.shields.io/github/downloads/riponcm/MeghXL/total?label=downloads&color=6366f1"></a>
-  <a href="https://github.com/riponcm/MeghXL/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/riponcm/MeghXL?label=release&color=a855f7"></a>
-  <a href="https://github.com/riponcm/MeghXL/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/riponcm/MeghXL/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="./LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-6366f1.svg"></a>
-  <a href="./SECURITY.md"><img alt="Security policy" src="https://img.shields.io/badge/security-policy-22d3ee.svg"></a>
-  <a href="https://github.com/riponcm/MeghXL/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/riponcm/MeghXL?style=social"></a>
+  <a href="https://github.com/riponcm/MeghXL/releases/latest"><img src="https://img.shields.io/github/v/release/riponcm/MeghXL?style=for-the-badge&color=6c5ce7&label=Release" alt="Latest release"></a>
+  <a href="https://github.com/riponcm/MeghXL/releases"><img src="https://img.shields.io/github/downloads/riponcm/MeghXL/total?style=for-the-badge&color=00cec9&label=Downloads" alt="Total downloads"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-00b894?style=for-the-badge" alt="Apache 2.0 license"></a>
+  <a href="https://github.com/riponcm/MeghXL/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/riponcm/MeghXL/ci.yml?style=for-the-badge&label=Build" alt="Build status"></a>
+  <a href="https://github.com/riponcm/MeghXL/stargazers"><img src="https://img.shields.io/github/stars/riponcm/MeghXL?style=for-the-badge&color=fdcb6e&label=Stars" alt="GitHub stars"></a>
 </p>
 
 <p align="center">
@@ -36,6 +35,9 @@ connected device with a download button and a QR code. The receiving side needs
 It's built for **offices, teams, and large networks**: your files never leave your
 network unless you explicitly choose to share them, and there are no per-file size
 caps or cloud middlemen.
+
+A [matily.org](https://matily.org/meghxl/) product. Free and open source under the
+Apache 2.0 license.
 
 ## How MeghXL compares
 
@@ -95,20 +97,23 @@ one machine has to be on, and in exchange nobody else installs anything.
 
 ## Download
 
-Prebuilt installers for every platform are on the
-**[Releases page](https://github.com/riponcm/MeghXL/releases)** — no Node.js
-required on the machine that runs them.
+Only the computer acting as the hub needs this — every other device just opens a
+browser. No Node.js required.
 
-| Platform | File |
-|---|---|
-| macOS (Apple Silicon) | `MeghXL_*_aarch64.dmg` |
-| macOS (Intel) | `MeghXL_*_x64.dmg` |
-| Windows | `MeghXL_*_x64-setup.exe` or `.msi` |
-| Linux | `.AppImage`, `.deb`, or `.rpm` |
+| Platform | File | Notes |
+|----------|------|-------|
+| macOS (Apple Silicon) | [Download .dmg](https://github.com/riponcm/MeghXL/releases/latest) | M1/M2/M3/M4 Macs |
+| macOS (Intel) | [Download .dmg](https://github.com/riponcm/MeghXL/releases/latest) | x64 build |
+| Windows 10/11 (x64) | [Download installer](https://github.com/riponcm/MeghXL/releases/latest) | NSIS `.exe` or `.msi` |
+| Linux (x64) | [Download .AppImage / .deb](https://github.com/riponcm/MeghXL/releases/latest) | Most distributions |
 
-> Releases are **unsigned**. macOS says "unidentified developer" — right-click
-> the app and choose **Open** the first time. Windows shows SmartScreen —
-> **More info → Run anyway**. Building from source avoids both.
+Every installer is fully self-contained — the server is compiled in, so there is no
+runtime to install. Open it and the dashboard appears; a tray icon keeps it running.
+The app checks for updates when you ask it to, and installs signed releases in place.
+
+macOS note: builds are not notarized with Apple; on first launch, right-click the app
+and choose **Open**. Windows shows SmartScreen — **More info → Run anyway**. Building
+from source avoids both.
 
 Prefer to run it from a terminal, or want it on a headless box? Use the
 Quickstart below.
