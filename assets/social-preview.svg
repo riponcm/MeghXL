@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-label="MeghXL — self-hosted file transfer for your local network">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#12141c"/><stop offset="1" stop-color="#0b0c12"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6d8bff"/><stop offset="0.55" stop-color="#9b6dff"/><stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#6d8bff" stop-opacity="0.20"/><stop offset="1" stop-color="#9b6dff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <ellipse cx="1120" cy="70" rx="520" ry="300" fill="url(#glow)"/>
+
+  <g transform="translate(96,150)">
+    <rect width="104" height="104" rx="26" fill="url(#mark)"/>
+    <g transform="translate(24,26)" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 30 L28 6 L52 30"/>
+      <path d="M4 32c5.5 4.4 11 4.4 16.5 0s11-4.4 16.5 0 11 4.4 16.5 0"/>
+      <path d="M4 44c5.5 4.4 11 4.4 16.5 0s11-4.4 16.5 0 11 4.4 16.5 0"/>
+    </g>
+  </g>
+
+  <text x="228" y="196" font-family="Helvetica,Arial,sans-serif" font-size="76" font-weight="700" fill="#e7eaf0">MeghXL</text>
+  <text x="230" y="240" font-family="Helvetica,Arial,sans-serif" font-size="23" fill="#8b93a7">A Matily product · Apache 2.0</text>
+
+  <text x="96" y="336" font-family="Helvetica,Arial,sans-serif" font-size="46" font-weight="700" fill="#e7eaf0">Self-hosted file transfer for your local network</text>
+  <text x="96" y="392" font-family="Helvetica,Arial,sans-serif" font-size="27" fill="#9aa2b6">Open-source AirDrop &amp; WeTransfer alternative. Any file, any size,</text>
+  <text x="96" y="430" font-family="Helvetica,Arial,sans-serif" font-size="27" fill="#9aa2b6">any device — through a browser. No cloud, no accounts, no limits.</text>
+
+  <g font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#c7ccda">
+    <g><rect x="96"  y="486" width="176" height="46" rx="23" fill="#1b2030" stroke="#2b3245"/><text x="184" y="515" text-anchor="middle">Windows</text></g>
+    <g><rect x="288" y="486" width="152" height="46" rx="23" fill="#1b2030" stroke="#2b3245"/><text x="364" y="515" text-anchor="middle">macOS</text></g>
+    <g><rect x="456" y="486" width="140" height="46" rx="23" fill="#1b2030" stroke="#2b3245"/><text x="526" y="515" text-anchor="middle">Linux</text></g>
+    <g><rect x="612" y="486" width="176" height="46" rx="23" fill="#1b2030" stroke="#2b3245"/><text x="700" y="515" text-anchor="middle">Android</text></g>
+    <g><rect x="804" y="486" width="140" height="46" rx="23" fill="#1b2030" stroke="#2b3245"/><text x="874" y="515" text-anchor="middle">iPhone</text></g>
+  </g>
+
+  <text x="1184" y="515" text-anchor="end" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#6d7488">github.com/riponcm/MeghXL</text>
+</svg>

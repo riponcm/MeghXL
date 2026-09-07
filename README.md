@@ -24,7 +24,11 @@
 
 ## What is MeghXL?
 
-Run one command on a PC and **MeghXL** turns it into a private file-transfer hub for
+**MeghXL is a free, open-source, self-hosted file transfer tool for your local
+network** — an AirDrop and WeTransfer alternative that works on Windows, macOS,
+Linux, Android and iOS without installing anything on the receiving device.
+
+Run one command on a PC and MeghXL turns it into a private file-transfer hub for
 your whole network. Drop a file in the dashboard and it instantly appears on every
 connected device with a download button and a QR code. The receiving side needs
 **nothing but a browser** — no app, no account, no sign-in.
@@ -32,6 +36,22 @@ connected device with a download button and a QR code. The receiving side needs
 It's built for **offices, teams, and large networks**: your files never leave your
 network unless you explicitly choose to share them, and there are no per-file size
 caps or cloud middlemen.
+
+## How MeghXL compares
+
+|  | **MeghXL** | LocalSend | PairDrop / Snapdrop | WeTransfer |
+|---|---|---|---|---|
+| Install on the **receiving** device | Nothing — any browser | App on every device | Browser on both ends | Browser |
+| Works with **no internet** | Yes | Yes | Yes, if self-hosted | No |
+| Files leave your network | Never | Never | Never | Yes — uploaded to their cloud |
+| Size limit | Your disk | Your disk | Varies | Capped by plan |
+| Files stay available after transfer | Yes — a shared board | No, one-shot | No, one-shot | Until the link expires |
+| Admin controls for an office | Yes — host console | No | No | Paid plans |
+| Accounts required | None | None | None | For most features |
+
+MeghXL takes the **hub-and-spoke** approach rather than peer-to-peer: one computer
+runs the server and everything else just opens a browser. That's the trade-off —
+one machine has to be on, and in exchange nobody else installs anything.
 
 ## Preview
 
@@ -325,6 +345,56 @@ desktop/           native app — Tauri shell + the server as a sidecar binary
 assets/            brand assets (logo, hero, previews)
 uploads/           runtime file storage (git-ignored)
 ```
+
+## FAQ
+
+### How do I transfer files between two computers on the same Wi-Fi?
+
+Run MeghXL on one of them (`npm start`, or open the desktop app). It prints a URL
+and a QR code. On the other computer, open that URL in any browser and drag your
+file onto the page — it appears on the first machine immediately.
+
+### Is there an AirDrop alternative that works between Windows, Mac and Android?
+
+Yes — this is one. AirDrop only works between Apple devices. MeghXL works between
+anything with a browser, so a Windows PC, a Mac, an Android phone and an iPhone can
+all share the same board at once.
+
+### Does it work without an internet connection?
+
+Yes. MeghXL only needs the devices to be on the same Wi-Fi or LAN. Nothing is
+uploaded to any cloud, and no account or sign-in exists.
+
+### How do I send a large file — 1 GB, 10 GB, more?
+
+There is no size limit beyond your disk. Uploads stream straight to disk instead of
+being buffered in memory, and downloads support HTTP Range, so they resume rather
+than restarting.
+
+### Can I share a file with just one person instead of everyone?
+
+Yes. Send it as a **private** link, or straight to a single device from the Send
+screen. Private files never appear on anyone else's dashboard. Add an **expiry** or
+make it a **one-time link** that deletes itself after a single download.
+
+### Is it safe to use at the office?
+
+MeghXL is designed for a network you already trust. Anyone who can reach the URL can
+see public files, so treat it like a shared drive. The host console — device blocking,
+announcements, file management — is restricted to the machine running the server, and
+verified at the socket rather than from a spoofable header. For anything sensitive,
+use a private link with an expiry. See [SECURITY.md](./SECURITY.md).
+
+### Do I need to install anything on phones?
+
+No. Phones just scan the QR code and use their browser. Only the computer acting as
+the hub runs MeghXL.
+
+### Can I use it over the internet?
+
+Not directly, and that is deliberate — MeghXL never exposes itself to the internet.
+Put it behind your own VPN or an authenticated reverse proxy and set
+`PUBLIC_BASE_URL`. See [Remote access](#remote-access-advanced).
 
 ## Contributing
 
