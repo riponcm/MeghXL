@@ -39,7 +39,7 @@ jobs:
             target: x86_64-unknown-linux-gnu
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # WebKitGTK is the webview Tauri uses on Linux; libxdo backs the tray.
       - name: Install Linux build dependencies
