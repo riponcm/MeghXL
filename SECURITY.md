@@ -62,7 +62,7 @@ MeghXL is deliberately built to be **auditable in one sitting**:
   (`express`, `ws`, `multer`, `qrcode`, `qrcode-terminal`, `mime-types`,
   `bonjour-service`), pinned via `package-lock.json`. `npm audit` reports **0
   known vulnerabilities** at release.
-- **MIT licensed**, all history public.
+- **Apache-2.0 licensed**, all history public.
 
 ### Audit it yourself (~10 minutes)
 
@@ -130,5 +130,5 @@ Honesty matters more than reassurance:
 
 ---
 
-*MeghXL is open-source (MIT). If something here doesn't match the code, that's a
+*MeghXL is open-source (Apache-2.0). If something here doesn't match the code, that's a
 bug in the docs — please report it.*

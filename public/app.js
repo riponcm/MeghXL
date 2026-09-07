@@ -183,8 +183,16 @@ async function copy(text) {
 }
 
 // ---------- view router ----------
+const VIEWS = ['dashboard', 'send', 'private', 'devices', 'about'];
+
 function showView(name) {
+  if (!VIEWS.includes(name)) name = 'dashboard';
   state.view = name;
+  // Keep the URL in step so the desktop app's View menu (and plain links)
+  // can jump straight to a view.
+  if (location.hash.slice(1) !== name) {
+    history.replaceState(null, '', '#' + name);
+  }
   document.querySelectorAll('.app-nav').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
   document.querySelectorAll('.view').forEach((v) => { v.hidden = v.dataset.view !== name; });
   if (name === 'private') { state.unseenPrivate = 0; updatePrivateBadge(); }
@@ -902,7 +910,8 @@ renderDevices();
 renderDestSelectors();
 renderStaged();
 renderNotes();
-showView('dashboard');
+showView(location.hash.slice(1) || 'dashboard');
+window.addEventListener('hashchange', () => showView(location.hash.slice(1) || 'dashboard'));
 loadInitial();
 revealAdminNav();
 connectWs();

@@ -9,6 +9,8 @@
     <key>NSAllowsLocalNetworking</key>
     <true/>
   </dict>
+  <key>NSHumanReadableCopyright</key>
+  <string>Copyright © 2026 Matily. Licensed under the Apache License 2.0.</string>
   <!-- macOS 15+ asks the user once before an app may talk to the local network. -->
   <key>NSLocalNetworkUsageDescription</key>
   <string>MeghXL shares files with the other devices on your local network.</string>

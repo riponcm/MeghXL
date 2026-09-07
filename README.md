@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-6366f1.svg"></a>
+  <a href="./LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-6366f1.svg"></a>
   <img alt="Node 18+" src="https://img.shields.io/badge/node-18%2B-6366f1.svg">
   <img alt="Built with Node.js + Express" src="https://img.shields.io/badge/built%20with-Node.js%20%2B%20Express-6366f1.svg">
   <img alt="Self-hosted" src="https://img.shields.io/badge/self--hosted-yes-a855f7.svg">
@@ -35,9 +35,6 @@ connected device with a download button and a QR code. The receiving side needs
 It's built for **offices, teams, and large networks**: your files never leave your
 network unless you explicitly choose to share them, and there are no per-file size
 caps or cloud middlemen.
-
-> The name comes from Bengali **মেঘ (megh)** — "cloud" — plus **XL**: your own
-> extra-large cloud, running on your network.
 
 ## Preview
 
@@ -350,4 +347,6 @@ issues, and ideas are always welcome.
 
 ## License
 
-[MIT](./LICENSE) — free to use, fork, and share.
+[Apache License 2.0](./LICENSE) — free to use, fork, modify and ship, including
+commercially. It adds an explicit patent grant and asks that you keep the notices
+in [NOTICE](./NOTICE) and state any changes you make.

@@ -15,7 +15,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
+use tauri::menu::{
+    AboutMetadata, CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, PredefinedMenuItem, Submenu,
+};
 use tauri::tray::TrayIconBuilder;
 use tauri::webview::{DownloadEvent, WebviewWindow, WebviewWindowBuilder};
 use tauri::WebviewUrl;
@@ -44,6 +46,9 @@ struct Server {
 /// The destination we assigned to the download currently in flight. macOS
 /// never reports the saved path back on `Finished`, so we keep our own copy.
 struct Downloads(Mutex<Option<PathBuf>>);
+
+/// The port the server ended up on, so menu handlers can build URLs.
+struct AppPort(u16);
 
 // ---------------------------------------------------------------------------
 // Downloads
@@ -374,91 +379,204 @@ fn check_for_updates(app: &tauri::AppHandle) {
 }
 
 // ---------------------------------------------------------------------------
+// Menus
+// ---------------------------------------------------------------------------
+
+const REPO: &str = "https://github.com/riponcm/MeghXL";
+
+/// Bring the window forward on `path` of the local dashboard.
+fn show_at(app: &tauri::AppHandle, path: &str) {
+    let port = app.try_state::<AppPort>().map(|p| p.0).unwrap_or(DEFAULT_PORT);
+    if let Some(win) = app.get_webview_window("main") {
+        if let Ok(url) = format!("http://127.0.0.1:{port}{path}").parse() {
+            let _ = win.navigate(url);
+        }
+        let _ = win.show();
+        let _ = win.unminimize();
+        let _ = win.set_focus();
+    }
+}
+
+/// Every menu action, in one place. The tray and the macOS menu bar both
+/// dispatch here, so the two can never drift apart.
+fn menu_action(app: &tauri::AppHandle, id: &str) {
+    match id {
+        "open" => show_at(app, "/"),
+        "console" => show_at(app, "/admin"),
+        "about" => show_at(app, "/#about"),
+        "nav-dashboard" => show_at(app, "/#dashboard"),
+        "nav-send" => show_at(app, "/#send"),
+        "nav-private" => show_at(app, "/#private"),
+        "nav-devices" => show_at(app, "/#devices"),
+        "reload" => {
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.eval("location.reload()");
+            }
+        }
+        "copy" => {
+            let port = app.try_state::<AppPort>().map(|p| p.0).unwrap_or(DEFAULT_PORT);
+            let host = lan_ip().unwrap_or_else(|| "127.0.0.1".into());
+            let _ = app.clipboard().write_text(format!("http://{host}:{port}/"));
+            let _ = app
+                .notification()
+                .builder()
+                .title("MeghXL")
+                .body("Network link copied")
+                .show();
+        }
+        "updates" => check_for_updates(app),
+        "downloads" => {
+            let dir = download_dir(app);
+            let _ = fs::create_dir_all(&dir);
+            let _ = app.opener().open_path(dir.to_string_lossy().to_string(), None::<&str>);
+        }
+        "downloads-set" => {
+            let app = app.clone();
+            app.clone()
+                .dialog()
+                .file()
+                .set_title("Choose where MeghXL saves downloads")
+                .pick_folder(move |chosen| {
+                    if let Some(dir) = chosen.and_then(|f| f.into_path().ok()) {
+                        set_download_dir(&app, &dir);
+                    }
+                });
+        }
+        "autostart" => {
+            let mgr = app.autolaunch();
+            let enabled = mgr.is_enabled().unwrap_or(false);
+            let _ = if enabled { mgr.disable() } else { mgr.enable() };
+        }
+        "help-github" => { let _ = app.opener().open_url(REPO, None::<&str>); }
+        "help-issue" => { let _ = app.opener().open_url(format!("{REPO}/issues/new"), None::<&str>); }
+        "help-security" => { let _ = app.opener().open_url(format!("{REPO}/blob/main/SECURITY.md"), None::<&str>); }
+        "help-releases" => { let _ = app.opener().open_url(format!("{REPO}/releases"), None::<&str>); }
+        "quit" => app.exit(0),
+        _ => {}
+    }
+}
+
+fn about_metadata() -> AboutMetadata<'static> {
+    AboutMetadata {
+        name: Some("MeghXL".into()),
+        version: Some(env!("CARGO_PKG_VERSION").into()),
+        copyright: Some("Copyright © 2026 Matily".into()),
+        authors: Some(vec!["Matily".into()]),
+        license: Some("Apache-2.0".into()),
+        website: Some("https://matily.org".into()),
+        website_label: Some("matily.org".into()),
+        comments: Some("Transfer anything across your local network.".into()),
+        ..Default::default()
+    }
+}
+
+/// The macOS menu bar. Without one, the app shows Tao's bare default; more
+/// importantly, the Edit menu is what makes Cmd-C/V work inside the webview.
+fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let sep = || PredefinedMenuItem::separator(app);
+
+    let app_menu = Submenu::with_items(app, "MeghXL", true, &[
+        &PredefinedMenuItem::about(app, Some("About MeghXL"), Some(about_metadata()))?,
+        &MenuItemBuilder::with_id("updates", "Check for Updates…").build(app)?,
+        &sep()?,
+        &MenuItemBuilder::with_id("downloads-set", "Downloads Folder…").build(app)?,
+        &CheckMenuItemBuilder::with_id("autostart", "Start at Login")
+            .checked(app.autolaunch().is_enabled().unwrap_or(false))
+            .build(app)?,
+        &sep()?,
+        &PredefinedMenuItem::services(app, None)?,
+        &sep()?,
+        &PredefinedMenuItem::hide(app, None)?,
+        &PredefinedMenuItem::hide_others(app, None)?,
+        &PredefinedMenuItem::show_all(app, None)?,
+        &sep()?,
+        &PredefinedMenuItem::quit(app, Some("Quit MeghXL"))?,
+    ])?;
+
+    let file_menu = Submenu::with_items(app, "File", true, &[
+        &MenuItemBuilder::with_id("copy", "Copy Network Link").build(app)?,
+        &MenuItemBuilder::with_id("downloads", "Open Downloads Folder").build(app)?,
+        &sep()?,
+        &PredefinedMenuItem::close_window(app, None)?,
+    ])?;
+
+    let edit_menu = Submenu::with_items(app, "Edit", true, &[
+        &PredefinedMenuItem::undo(app, None)?,
+        &PredefinedMenuItem::redo(app, None)?,
+        &sep()?,
+        &PredefinedMenuItem::cut(app, None)?,
+        &PredefinedMenuItem::copy(app, None)?,
+        &PredefinedMenuItem::paste(app, None)?,
+        &PredefinedMenuItem::select_all(app, None)?,
+    ])?;
+
+    let view_menu = Submenu::with_items(app, "View", true, &[
+        &MenuItemBuilder::with_id("nav-dashboard", "Dashboard").build(app)?,
+        &MenuItemBuilder::with_id("nav-send", "Send").build(app)?,
+        &MenuItemBuilder::with_id("nav-private", "Private").build(app)?,
+        &MenuItemBuilder::with_id("nav-devices", "Devices").build(app)?,
+        &MenuItemBuilder::with_id("about", "About").build(app)?,
+        &sep()?,
+        &MenuItemBuilder::with_id("console", "Host Console").build(app)?,
+        &sep()?,
+        &MenuItemBuilder::with_id("reload", "Reload").build(app)?,
+        &PredefinedMenuItem::fullscreen(app, None)?,
+    ])?;
+
+    let window_menu = Submenu::with_items(app, "Window", true, &[
+        &PredefinedMenuItem::minimize(app, None)?,
+        &PredefinedMenuItem::maximize(app, None)?,
+        &sep()?,
+        &PredefinedMenuItem::bring_all_to_front(app, None)?,
+    ])?;
+
+    let help_menu = Submenu::with_items(app, "Help", true, &[
+        &MenuItemBuilder::with_id("help-github", "MeghXL on GitHub").build(app)?,
+        &MenuItemBuilder::with_id("help-releases", "Release Notes").build(app)?,
+        &MenuItemBuilder::with_id("help-security", "Security Policy").build(app)?,
+        &sep()?,
+        &MenuItemBuilder::with_id("help-issue", "Report an Issue").build(app)?,
+    ])?;
+
+    let menu = MenuBuilder::new(app)
+        .items(&[&app_menu, &file_menu, &edit_menu, &view_menu, &window_menu, &help_menu])
+        .build()?;
+    app.set_menu(menu)?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Tray
 // ---------------------------------------------------------------------------
 
-fn build_tray(app: &tauri::AppHandle, port: u16) -> tauri::Result<()> {
-    let open = MenuItemBuilder::with_id("open", "Open MeghXL").build(app)?;
-    let console = MenuItemBuilder::with_id("console", "Host console").build(app)?;
-    let copy = MenuItemBuilder::with_id("copy", "Copy network link").build(app)?;
-    let updates = MenuItemBuilder::with_id("updates", "Check for updates…").build(app)?;
-    let about = MenuItemBuilder::with_id("about", "About MeghXL").build(app)?;
-    let downloads = MenuItemBuilder::with_id("downloads", "Open downloads folder").build(app)?;
-    let downloads_set =
-        MenuItemBuilder::with_id("downloads-set", "Change downloads folder…").build(app)?;
-    let autostart = CheckMenuItemBuilder::with_id("autostart", "Start at login")
-        .checked(app.autolaunch().is_enabled().unwrap_or(false))
-        .build(app)?;
-    let quit = MenuItemBuilder::with_id("quit", "Quit MeghXL").build(app)?;
-
+fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let sep = || PredefinedMenuItem::separator(app);
     let menu = MenuBuilder::new(app)
         .items(&[
-            &open,
-            &console,
-            &copy,
-            &PredefinedMenuItem::separator(app)?,
-            &downloads,
-            &downloads_set,
-            &PredefinedMenuItem::separator(app)?,
-            &about,
-            &updates,
-            &PredefinedMenuItem::separator(app)?,
-            &autostart,
-            &PredefinedMenuItem::separator(app)?,
-            &quit,
+            &MenuItemBuilder::with_id("open", "Open MeghXL").build(app)?,
+            &MenuItemBuilder::with_id("console", "Host console").build(app)?,
+            &MenuItemBuilder::with_id("copy", "Copy network link").build(app)?,
+            &sep()?,
+            &MenuItemBuilder::with_id("downloads", "Open downloads folder").build(app)?,
+            &MenuItemBuilder::with_id("downloads-set", "Change downloads folder…").build(app)?,
+            &sep()?,
+            &MenuItemBuilder::with_id("about", "About MeghXL").build(app)?,
+            &MenuItemBuilder::with_id("updates", "Check for updates…").build(app)?,
+            &sep()?,
+            &CheckMenuItemBuilder::with_id("autostart", "Start at login")
+                .checked(app.autolaunch().is_enabled().unwrap_or(false))
+                .build(app)?,
+            &sep()?,
+            &MenuItemBuilder::with_id("quit", "Quit MeghXL").build(app)?,
         ])
         .build()?;
-
-    let show = move |app: &tauri::AppHandle, path: &str| {
-        if let Some(win) = app.get_webview_window("main") {
-            if let Ok(url) = format!("http://127.0.0.1:{port}{path}").parse() {
-                let _ = win.navigate(url);
-            }
-            let _ = win.show();
-            let _ = win.unminimize();
-            let _ = win.set_focus();
-        }
-    };
 
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().unwrap().clone())
         .tooltip("MeghXL — local network file transfer")
         .menu(&menu)
         .show_menu_on_left_click(true)
-        .on_menu_event(move |app, event| match event.id().as_ref() {
-            "open" => show(app, "/"),
-            "console" => show(app, "/admin"),
-            "copy" => {
-                let host = lan_ip().unwrap_or_else(|| "127.0.0.1".into());
-                let _ = app.clipboard().write_text(format!("http://{host}:{port}/"));
-            }
-            "about" => show(app, "/#about"),
-            "updates" => check_for_updates(app),
-            "downloads" => {
-                let dir = download_dir(app);
-                let _ = fs::create_dir_all(&dir);
-                let _ = app.opener().open_path(dir.to_string_lossy().to_string(), None::<&str>);
-            }
-            "downloads-set" => {
-                let app = app.clone();
-                app.clone()
-                    .dialog()
-                    .file()
-                    .set_title("Choose where MeghXL saves downloads")
-                    .pick_folder(move |chosen| {
-                        if let Some(dir) = chosen.and_then(|f| f.into_path().ok()) {
-                            set_download_dir(&app, &dir);
-                        }
-                    });
-            }
-            "autostart" => {
-                let mgr = app.autolaunch();
-                let enabled = mgr.is_enabled().unwrap_or(false);
-                let _ = if enabled { mgr.disable() } else { mgr.enable() };
-            }
-            "quit" => app.exit(0),
-            _ => {}
-        })
+        .on_menu_event(|app, event| menu_action(app, event.id().as_ref()))
         .build(app)?;
 
     Ok(())
@@ -475,6 +593,7 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .on_menu_event(|app, event| menu_action(app, event.id().as_ref()))
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -487,8 +606,10 @@ fn main() {
                         child: Mutex::new(child),
                     });
                     app.manage(Downloads(Mutex::new(None)));
+                    app.manage(AppPort(port));
                     create_main_window(&handle, port)?;
-                    build_tray(&handle, port)?;
+                    build_app_menu(&handle)?;
+                    build_tray(&handle)?;
                     show_dashboard_when_ready(handle, port);
                 }
                 Err(message) => {
