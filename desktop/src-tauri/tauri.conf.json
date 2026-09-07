@@ -13,10 +13,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "app",
-      "dmg"
-    ],
+    "targets": "all",
     "category": "Utility",
     "shortDescription": "Local-network file transfer",
     "longDescription": "MeghXL turns this computer into a private file-transfer hub for your local network. Drop a file and every device on the same Wi-Fi can grab it from a browser \u2014 no accounts, no cloud, no size limits.",
