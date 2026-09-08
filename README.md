@@ -115,12 +115,61 @@ macOS note: builds are not notarized with Apple; on first launch, right-click th
 and choose **Open**. Windows shows SmartScreen — **More info → Run anyway**. Building
 from source avoids both.
 
-Prefer to run it from a terminal, or want it on a headless box? Use the
-Quickstart below.
+## How to use it
 
-## Quickstart
+Three steps. Only **one** computer installs anything.
 
-Requires **Node.js 18+**.
+### 1. Pick one computer to be the hub
+
+This is the machine everyone shares through — an office PC, a spare laptop, a
+Mac in the corner. Install MeghXL on it from [Download](#download) above and open
+it. That's the whole setup.
+
+You'll see the dashboard, and the app shows the address other devices should use:
+
+```
+meghxl.local:3000
+```
+
+### 2. Open that address on any other device
+
+Phones, laptops, tablets — **anything with a browser**, on the same Wi-Fi:
+
+- **Scan the QR code** — click **Add a device** in the sidebar and point a phone
+  camera at it. Fastest way, and no typing.
+- **Or type** `meghxl.local:3000` into the browser.
+
+> If a device can't open `meghxl.local` — some Android browsers don't resolve
+> `.local` names — use the numeric address instead. It's in the host's tray menu
+> under **Copy network link**, and on the host console under Settings.
+
+Bookmark it once per device and it's one tap forever.
+
+### 3. Drop a file
+
+On any device, go to **Send**, drag a file in, choose who gets it, and press
+**Send**:
+
+| Send to | What happens |
+|---|---|
+| **Everyone** | Appears on every device's Dashboard, live |
+| **Private link** | Only someone with the link can open it — it's in no list |
+| **A specific device** | Goes straight to that one device's Private tab |
+
+Before sending you can set an **expiry**, or tick **one-time** so the file deletes
+itself the moment it's downloaded once.
+
+That's it. Files download to each device normally; nothing else to install.
+
+**Two things worth doing on the hub:**
+
+- Turn on **Start at login** in the tray menu, so the hub is always ready.
+- Open the **Host console** (visible only on the hub) to see connected devices,
+  post an announcement, or clear old files.
+
+## Quickstart (from source)
+
+Prefer a terminal, or running it on a headless box or NAS? Requires **Node.js 18+**.
 
 ```bash
 git clone https://github.com/riponcm/MeghXL.git
