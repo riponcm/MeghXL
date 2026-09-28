@@ -58,6 +58,6 @@
     "ws": "^8.21.3"
   },
   "devDependencies": {
-    "supertest": "^7.0.0"
+    "supertest": "^7.3.0"
   }
 }
