@@ -1,26 +1,35 @@
-# MeghXL's pitch is that you can audit it in ten minutes. That only stays true
-# if its dependencies don't quietly rot, so all three ecosystems are watched.
+# Security fixes only.
+#
+# `open-pull-requests-limit: 0` switches off Dependabot's routine version-bump
+# PRs, which were mostly noise for a project this small. Security updates are a
+# separate feature (repository Settings → Code security) and are unaffected by
+# this limit: when a dependency has a published vulnerability, Dependabot still
+# opens a PR for it — which is what keeps "npm audit: 0 vulnerabilities" true.
+#
+# Routine upgrades are done by hand before each release, where the desktop app
+# is built and the update path is tested end to end.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: "/"
-    schedule: { interval: weekly }
-    open-pull-requests-limit: 5
-    labels: ["dependencies"]
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 0
+    labels: ["security"]
 
   - package-ecosystem: npm
     directory: "/desktop"
-    schedule: { interval: weekly }
-    open-pull-requests-limit: 5
-    labels: ["dependencies", "desktop"]
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 0
+    labels: ["security", "desktop"]
 
   - package-ecosystem: cargo
     directory: "/desktop/src-tauri"
-    schedule: { interval: weekly }
-    open-pull-requests-limit: 5
-    labels: ["dependencies", "desktop"]
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 0
+    labels: ["security", "desktop"]
 
   - package-ecosystem: github-actions
     directory: "/"
     schedule: { interval: monthly }
-    labels: ["dependencies", "ci"]
+    open-pull-requests-limit: 0
+    labels: ["security", "ci"]
