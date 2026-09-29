@@ -20,6 +20,19 @@ const createUpdateRouter = require('./src/routes/update');
 const { requestGuard } = require('./src/request-guard');
 
 const SWEEP_INTERVAL_MS = 60 * 1000;
+const IDLE_TIMEOUT_MS = 2 * 60 * 1000;
+
+/**
+ * "Any size" means an upload may take as long as it needs. Node's default
+ * requestTimeout (5 minutes) cut off large videos sent from phones over Wi-Fi
+ * with a 408. Instead, drop a connection only when it goes silent for two
+ * minutes; headers must still arrive within the default headersTimeout.
+ */
+function tuneServer(server) {
+  server.requestTimeout = 0;
+  server.timeout = IDLE_TIMEOUT_MS;
+  return server;
+}
 
 /**
  * Build the Express app. `hub` only needs a `.broadcast(type, payload)` method,
@@ -116,7 +129,7 @@ function main() {
   }
   runtime.adminKey = key;
 
-  const server = http.createServer();
+  const server = tuneServer(http.createServer());
   const hub = createHub(server);
   const { app, files } = buildApp(hub);
   server.on('request', app);
@@ -163,4 +176,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { buildApp };
+module.exports = { buildApp, tuneServer };

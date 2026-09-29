@@ -35,6 +35,15 @@ should mirror the entry below it.
   `Cross-Origin-Resource-Policy: same-origin`.
 
 ### Fixed
+- **Interrupted uploads are no longer silent.** When a phone stopped an upload —
+  screen locked, browser sent to the background, Wi-Fi dropped — the progress
+  bar simply vanished. The dashboard now names the file and says what happened,
+  shows a "keep this page open" hint while uploading, and warns before leaving
+  the page mid-upload. A picker that returns nothing (typically a long video the
+  phone failed to prepare) is reported too.
+- **Long uploads are no longer cut off at five minutes** when running with Node
+  (`npm start`), which answered HTTP 408. A connection is now dropped only after
+  two minutes of silence. (The desktop app was not affected.)
 - A `HEAD` request (as sent by link previewers) no longer uses up a one-time link.
 
 ### Added

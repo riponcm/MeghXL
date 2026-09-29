@@ -11,7 +11,7 @@
   <link rel="icon" href="/favicon-16.png" sizes="16x16" type="image/png" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="manifest" href="/site.webmanifest" />
-  <link rel="stylesheet" href="/styles.css?v=9" />
+  <link rel="stylesheet" href="/styles.css?v=10" />
 </head>
 <body>
   <div class="app-shell">
@@ -105,6 +105,7 @@
           <button id="send-btn" class="btn send-btn" type="button" disabled><svg class="ic" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 21.7a.5.5 0 0 0 .9 0l6.5-19a.5.5 0 0 0-.6-.6l-19 6.5a.5.5 0 0 0 0 .9l7.9 3.2a2 2 0 0 1 1.1 1.1z"/><path d="m21.9 2.1-11 11"/></svg><span id="send-btn-label">Send</span></button>
 
           <section id="uploads" class="uploads" hidden aria-label="Active uploads"></section>
+          <p id="upload-hint" class="upload-hint" hidden>Keep this page open, with the screen on, until uploads finish.</p>
 
           <h2 class="section-title" style="margin-top:28px"><svg class="ic" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>Sent history</h2>
           <div id="sent-list" class="file-list"></div>
@@ -195,6 +196,6 @@
 
   <div id="toast" class="toast" hidden></div>
 
-  <script src="/app.js?v=12"></script>
+  <script src="/app.js?v=13"></script>
 </body>
 </html>

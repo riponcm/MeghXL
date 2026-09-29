@@ -105,6 +105,7 @@ body {
 
 /* ---------- uploads ---------- */
 .uploads { display: flex; flex-direction: column; gap: 8px; margin: 14px 0; }
+.upload-hint { font-size: 12.5px; color: var(--muted); margin: -6px 0 12px; }
 .upload-row { display: grid; grid-template-columns: 1fr 2fr auto; gap: 10px; align-items: center; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; }
 .upload-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .upload-bar { height: 8px; background: var(--panel-2); border-radius: 999px; overflow: hidden; }

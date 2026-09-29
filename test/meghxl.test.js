@@ -18,7 +18,7 @@ const assert = require('node:assert');
 const request = require('supertest');
 const http = require('node:http');
 const WebSocket = require('ws');
-const { buildApp } = require('../server');
+const { buildApp, tuneServer } = require('../server');
 const { createHub } = require('../src/ws-hub');
 const { detectLanIPv4 } = require('../src/network');
 const lanIp = () => detectLanIPv4();
@@ -452,6 +452,13 @@ test('WebSocket: X-Forwarded-For is trusted only from a proxy on this machine', 
     hub.wss.close();
     await new Promise((r) => server.close(r));
   }
+});
+
+test('long uploads are not cut off at five minutes, only when the connection goes silent', () => {
+  const server = tuneServer(http.createServer());
+  assert.equal(server.requestTimeout, 0, 'no overall deadline on a request');
+  assert.equal(server.timeout, 2 * 60 * 1000, 'but a silent connection is dropped');
+  assert.ok(server.headersTimeout > 0, 'headers must still arrive promptly');
 });
 
 test.after(() => {

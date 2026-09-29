@@ -296,6 +296,12 @@ function renderAnnounceCards() {
 
 // ---------- staging (files queued in the Send tab) ----------
 function stageFiles(fileList) {
+  if (!fileList || !fileList.length) {
+    // A phone can return from its picker with nothing — typically a long video
+    // it failed to prepare. Say so instead of doing nothing.
+    toast('No file was received. Large videos can take a while to prepare — try again, or pick the file from the Files app.', 'danger');
+    return;
+  }
   for (const f of fileList) state.staged.push(f);
   showView('send');
   switchSendTab('files');
@@ -580,7 +586,14 @@ function uploadOne(file, opts) {
   );
   uploads.hidden = false;
   uploads.append(row);
-  const cleanup = () => { row.remove(); if (!uploads.children.length) uploads.hidden = true; };
+  let finished = false;
+  const cleanup = () => {
+    if (finished) return;
+    finished = true;
+    row.remove();
+    if (!uploads.children.length) uploads.hidden = true;
+    uploadEnded();
+  };
 
   const fd = new FormData();
   fd.append('fromName', state.device.name);
@@ -617,14 +630,50 @@ function uploadOne(file, opts) {
         showQrModal('Private link — share it with one person', dlUrl(shape.token));
       }
     } else {
-      let msg = 'Upload failed';
-      try { msg = JSON.parse(xhr.responseText).error || msg; } catch { /* keep default */ }
+      let msg = `“${file.name}” didn't upload`;
+      try { msg = `${msg}: ${JSON.parse(xhr.responseText).error}`; } catch { /* keep default */ }
       toast(msg, 'danger');
     }
   };
-  xhr.onerror = () => { cleanup(); toast('Upload failed', 'danger'); };
+  // A phone aborts an upload when the screen locks or the browser goes to the
+  // background. Both used to end silently — the progress bar just vanished.
+  xhr.onerror = () => { cleanup(); toast(`“${file.name}” didn't upload — check the Wi-Fi and try again.`, 'danger'); };
+  xhr.onabort = () => { cleanup(); toast(`“${file.name}” was interrupted. Keep this page open with the screen on until it finishes, then try again.`, 'danger'); };
+  uploadStarted();
   xhr.send(fd);
 }
+
+// ---------- keeping uploads alive on phones ----------
+// A phone stops an upload the moment its screen locks or the browser goes to
+// the background — a real risk for a video that takes minutes. While anything
+// is uploading: show a hint, warn before leaving, and ask to keep the screen on.
+// Browsers only offer the Wake Lock API to secure contexts (HTTPS/localhost),
+// so over plain http:// on a LAN it's unavailable and the hint does the work.
+let activeUploads = 0;
+let wakeLock = null;
+async function holdWakeLock() {
+  if (wakeLock || !('wakeLock' in navigator) || document.visibilityState !== 'visible') return;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch { /* refused (e.g. low-power mode) — the hint still shows */ }
+}
+function updateUploadHint() { $('#upload-hint').hidden = activeUploads === 0; }
+function uploadStarted() { activeUploads++; holdWakeLock(); updateUploadHint(); }
+function uploadEnded() {
+  activeUploads = Math.max(0, activeUploads - 1);
+  if (!activeUploads && wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+  updateUploadHint();
+}
+// The browser drops the wake lock whenever the page is hidden; take it back.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && activeUploads) holdWakeLock();
+});
+window.addEventListener('beforeunload', (e) => {
+  if (!activeUploads) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
 
 // ---------- messages ----------
 async function sendDm(to, text) {
