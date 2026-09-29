@@ -17,6 +17,7 @@ const createFilesRouter = require('./src/routes/files');
 const createNotesRouter = require('./src/routes/notes');
 const createAdminRouter = require('./src/routes/admin');
 const createUpdateRouter = require('./src/routes/update');
+const { requestGuard } = require('./src/request-guard');
 
 const SWEEP_INTERVAL_MS = 60 * 1000;
 
@@ -30,6 +31,9 @@ function buildApp(hub) {
   app.disable('x-powered-by');
   app.enable('trust proxy'); // correct req.protocol/host behind a reverse proxy / VPN
 
+  // First, before any route or static file: refuse DNS rebinding everywhere and
+  // cross-site writes (CSRF). See src/request-guard.js.
+  app.use(requestGuard);
   app.use(express.json({ limit: '16kb' }));
 
   const files = createFilesRouter(hub);

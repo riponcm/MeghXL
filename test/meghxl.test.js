@@ -10,11 +10,16 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'meghxl-test-'));
 process.env.UPLOAD_DIR = path.join(tmp, 'uploads');
 process.env.DATA_FILE = path.join(tmp, 'metadata.json');
 process.env.MAX_UPLOAD_MB = '5';
+// A proxy's public name, as an operator would declare it.
+process.env.ALLOWED_HOSTS = 'hub.example.com';
 
 const test = require('node:test');
 const assert = require('node:assert');
 const request = require('supertest');
+const http = require('node:http');
+const WebSocket = require('ws');
 const { buildApp } = require('../server');
+const { createHub } = require('../src/ws-hub');
 
 const runtime = require('../src/runtime');
 
@@ -145,7 +150,10 @@ test('host (localhost) gets the admin console without a key', async () => {
 });
 
 test('host can post an announcement that appears in state', async () => {
-  const posted = await request(app).post('/api/admin/announce').send({ text: 'hello team' });
+  const posted = await request(app)
+    .post('/api/admin/announce')
+    .set('x-meghxl-request', '1')
+    .send({ text: 'hello team' });
   assert.equal(posted.status, 200);
   assert.equal(posted.body.text, 'hello team');
 
@@ -185,6 +193,153 @@ test('a forwarded request spoofing loopback via XFF cannot escalate to admin', a
   // presence of a forwarding header disqualifies it (auth uses the raw socket).
   const r = await request(app).get('/api/admin/state').set('X-Forwarded-For', '127.0.0.1');
   assert.equal(r.status, 403);
+});
+
+// ---------------------------------------------------------------------------
+// Security regressions — 1.0.1. Each test is one attack from the report (or
+// found while reproducing it), sent with the headers a real browser attaches.
+// ---------------------------------------------------------------------------
+
+const EVIL = 'https://evil.example';
+const SAME = { Host: 'meghxl.local:3000', Origin: 'http://meghxl.local:3000' };
+
+async function uploadPrivate(text) {
+  const r = await request(app)
+    .post('/api/upload')
+    .field('visibility', 'private')
+    .attach('file', Buffer.from(text), 'secret.txt');
+  assert.equal(r.status, 200);
+  return r.body.token;
+}
+
+test('DNS rebinding: a foreign Host header is refused on every kind of route', async () => {
+  const token = await uploadPrivate('rebind target');
+  for (const path of ['/api/admin/files', '/api/files', `/d/${token}`, '/', '/admin']) {
+    const r = await request(app).get(path).set('Host', 'rebind.evil.example:3000');
+    assert.equal(r.status, 403, `${path} must refuse a foreign Host`);
+  }
+});
+
+test('DNS rebinding: look-alike and malformed hosts are refused', async () => {
+  for (const host of ['evil.com', 'evil.com.', 'localhost.evil.com', 'meghxl.local.evil.com',
+                      'EVIL.COM:3000', 'evil.com:abc', 'user@127.0.0.1', '[::1', '1.2.3.4:3000:1']) {
+    const r = await request(app).get('/api/health').set('Host', host);
+    assert.equal(r.status, 403, `Host "${host}" must be refused`);
+  }
+});
+
+test('every legitimate way of reaching the hub is still allowed', async () => {
+  for (const host of ['localhost:3000', '127.0.0.1:3000', '[::1]:3000', '10.0.0.3:3000',
+                      '192.168.1.10', 'meghxl.local:3000', 'meghxl.local.:3000', 'MeghXL.Local',
+                      'myhub:3000', 'hub.lan', 'office.home.arpa', 'nas.internal', 'hub.example.com']) {
+    const r = await request(app).get('/api/health').set('Host', host);
+    assert.equal(r.status, 200, `Host "${host}" must be allowed`);
+  }
+});
+
+test('CSRF: a cross-site form POST cannot clear the files', async () => {
+  const token = await uploadPrivate('must survive');
+  const r = await request(app)
+    .post('/api/admin/files/clear')
+    .set('Origin', EVIL)
+    .set('Sec-Fetch-Site', 'cross-site')
+    .set('Content-Type', 'application/x-www-form-urlencoded')
+    .send('');
+  assert.equal(r.status, 403);
+  const still = await request(app).get(`/d/${token}`).buffer(true).parse(binaryParser);
+  assert.equal(still.status, 200, 'the file must still be there');
+});
+
+test('CSRF: Origin "null" (sandboxed frame / data: page) is refused', async () => {
+  const r = await request(app).post('/api/admin/files/clear')
+    .set('Origin', 'null').set('x-meghxl-request', '1');
+  assert.equal(r.status, 403);
+});
+
+test('CSRF: Sec-Fetch-Site cross-site or same-site is refused even without Origin', async () => {
+  for (const site of ['cross-site', 'same-site']) {
+    const r = await request(app).post('/api/notes').set('Sec-Fetch-Site', site).send({ text: 'x' });
+    assert.equal(r.status, 403, `Sec-Fetch-Site: ${site}`);
+  }
+});
+
+test('CSRF: a cross-site multipart upload cannot plant files on the board', async () => {
+  const r = await request(app)
+    .post('/api/upload')
+    .set('Origin', EVIL)
+    .field('visibility', 'public')
+    .attach('file', Buffer.from('planted'), 'planted.txt');
+  assert.equal(r.status, 403);
+});
+
+test('CSRF: an admin write without the x-meghxl-request header is refused, even same-origin', async () => {
+  const r = await request(app).post('/api/admin/announce').set(SAME).send({ text: 'x' });
+  assert.equal(r.status, 403);
+});
+
+test('same-origin browser requests and plain clients (curl) keep working', async () => {
+  const ok = await request(app).post('/api/admin/announce')
+    .set(SAME).set('x-meghxl-request', '1').send({ text: 'same-origin works' });
+  assert.equal(ok.status, 200);
+
+  const curl = await request(app).post('/api/upload')
+    .attach('file', Buffer.from('from a script'), 'script.txt');
+  assert.equal(curl.status, 200, 'no Origin and no Sec-Fetch-Site = not a browser');
+});
+
+test('behind a proxy that rewrites Host, the declared public origin is accepted', async () => {
+  const r = await request(app).post('/api/notes')
+    .set('Host', '127.0.0.1:3000').set('Origin', 'https://hub.example.com').send({ text: 'via proxy' });
+  assert.equal(r.status, 200);
+});
+
+test('whoami reveals only isAdmin — no host addresses or headers', async () => {
+  const r = await request(app).get('/api/admin/whoami');
+  assert.equal(r.status, 200);
+  assert.deepEqual(Object.keys(r.body), ['isAdmin']);
+});
+
+test('the admin key is accepted in a header but no longer in the query string', async () => {
+  runtime.adminKey = 'test-key-456';
+  try {
+    const viaQuery = await request(app).get('/api/admin/state?key=test-key-456')
+      .set('X-Forwarded-For', '203.0.113.9');
+    assert.equal(viaQuery.status, 403);
+    const viaHeader = await request(app).get('/api/admin/state')
+      .set('X-Forwarded-For', '203.0.113.9').set('x-admin-key', 'test-key-456');
+    assert.equal(viaHeader.status, 200);
+    const wrong = await request(app).get('/api/admin/state')
+      .set('X-Forwarded-For', '203.0.113.9').set('x-admin-key', 'test-key-45');
+    assert.equal(wrong.status, 403, 'a prefix of the key is not the key');
+  } finally {
+    runtime.adminKey = null;
+  }
+});
+
+test('WebSocket: cross-site origins and foreign hosts cannot join the board', async () => {
+  const server = http.createServer();
+  const hub = createHub(server);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  const url = `ws://127.0.0.1:${port}/ws`;
+
+  const attempt = (opts) => new Promise((resolve) => {
+    const ws = new WebSocket(url, opts);
+    ws.on('open', () => { ws.close(); resolve('open'); });
+    ws.on('unexpected-response', (_req, res) => resolve(res.statusCode));
+    ws.on('error', () => resolve('error'));
+  });
+
+  try {
+    assert.notEqual(await attempt({ origin: EVIL }), 'open', 'cross-site origin must be refused');
+    assert.notEqual(await attempt({ origin: 'null' }), 'open', 'null origin must be refused');
+    assert.notEqual(await attempt({ headers: { Host: 'rebind.evil.example' } }), 'open', 'foreign Host must be refused');
+    assert.equal(await attempt({ origin: `http://127.0.0.1:${port}` }), 'open', 'same-origin must connect');
+    assert.equal(await attempt({}), 'open', 'a non-browser client (no Origin) must connect');
+  } finally {
+    hub.wss.close();
+    await new Promise((r) => server.close(r));
+  }
 });
 
 test.after(() => {

@@ -80,7 +80,9 @@ async function copy(text) {
 
 // ---------- api ----------
 async function api(path, opts = {}) {
-  const headers = {};
+  // x-meghxl-request marks this as our own script; the server refuses admin
+  // writes without it (see requireAdmin in src/admin-auth.js).
+  const headers = { 'x-meghxl-request': '1' };
   if (state.key) headers['x-admin-key'] = state.key; // optional remote-admin key (ADMIN_KEY)
   if (opts.body) headers['Content-Type'] = 'application/json';
   const res = await fetch(path, {

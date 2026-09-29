@@ -5,8 +5,7 @@ const express = require('express');
 const config = require('../config');
 const store = require('../store');
 const { getShareBase } = require('../baseUrl');
-const { localAddresses } = require('../network');
-const { isLoopbackHost, clientIp, isAdmin, requireAdmin } = require('../admin-auth');
+const { isAdmin, requireAdmin } = require('../admin-auth');
 
 function sanitize(s, max) {
   let out = '';
@@ -23,22 +22,13 @@ function sanitize(s, max) {
 module.exports = function createAdminRouter({ hub, files }) {
   const router = express.Router();
 
-  // GET /api/admin/whoami — UNAUTHENTICATED diagnostic. Shows exactly what the
-  // server sees for this request, so admin-access issues can be pinned down.
+  // GET /api/admin/whoami — lets the dashboard decide whether to show the Host
+  // console link. It answers that one question and nothing else: it used to
+  // echo headers, admin IPs and every address on the host (including globally
+  // routable IPv6) to any device on the network.
   router.get('/api/admin/whoami', (req, res) => {
-    res.json({
-      socketRemoteAddress: (req.socket && req.socket.remoteAddress) || null,
-      xForwardedFor: req.headers['x-forwarded-for'] || null,
-      cfConnectingIp: req.headers['cf-connecting-ip'] || null,
-      host: req.headers.host || null,
-      via: req.headers['via'] || null,
-      clientIp: clientIp(req),
-      isLoopbackHost: isLoopbackHost(req),
-      isAdmin: isAdmin(req),
-      adminClaimedIp: store.getSettings().adminClaimedIp || null,
-      adminIps: config.adminIps,
-      localAddresses: [...localAddresses()],
-    });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ isAdmin: isAdmin(req) });
   });
 
   // GET /api/admin/state — everything the console renders

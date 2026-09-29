@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('node:crypto');
 const config = require('./config');
 const runtime = require('./runtime');
 const { localAddresses } = require('./network');
@@ -28,18 +29,43 @@ function clientIp(req) {
   return raw.replace(/^::ffff:/, '').replace(/%.*$/, '');
 }
 
+// Constant-time comparison, so the key can't be recovered by timing responses.
+function keyMatches(given) {
+  if (!runtime.adminKey || typeof given !== 'string') return false;
+  const a = Buffer.from(given);
+  const b = Buffer.from(runtime.adminKey);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 // Admin = the machine running MeghXL (every browser on it), OR a PC designated
-// by ADMIN_IP, OR a request carrying the ADMIN_KEY. This gates the host console
-// AND going public (the most consequential action), so a random LAN device
-// can't expose the whole server to the internet.
+// by ADMIN_IP, OR a request carrying the ADMIN_KEY header.
+//
+// The loopback test only proves which *machine* sent a request, not which
+// *page*: a website open on the host PC can make its browser call us too. The
+// request guard (request-guard.js) is what rules those out — it refuses foreign
+// Host headers (DNS rebinding) and cross-site writes (CSRF) before this runs.
+//
+// The key is read from a header only, never the query string, which would leave
+// it in browser history, proxy logs and Referer headers. (The console still
+// accepts /admin?key=… — admin.js moves it into a header and off the URL.)
 function isAdmin(req) {
   if (isLoopbackHost(req)) return true;
   if (config.adminIps.length && config.adminIps.includes(clientIp(req))) return true;
-  if (runtime.adminKey && (req.get('x-admin-key') || req.query.key) === runtime.adminKey) return true;
+  if (keyMatches(req.get('x-admin-key'))) return true;
   return false;
 }
 
+// A header only our own script sets. A browser can't attach a custom header to
+// a cross-origin request without a CORS preflight, which this server never
+// approves — so requiring it on admin writes blocks CSRF even from a browser
+// that sends neither Origin nor Sec-Fetch-Site.
+const ADMIN_WRITE_HEADER = 'x-meghxl-request';
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
 function requireAdmin(req, res, next) {
+  if (WRITE_METHODS.has(req.method) && req.get(ADMIN_WRITE_HEADER) !== '1') {
+    return res.status(403).json({ error: `Admin writes must send the ${ADMIN_WRITE_HEADER} header.` });
+  }
   if (isAdmin(req)) return next();
   return res.status(403).json({
     error: 'This action is restricted to the host computer (or an ADMIN_IP device / the admin key).',
@@ -47,4 +73,4 @@ function requireAdmin(req, res, next) {
   });
 }
 
-module.exports = { isLoopbackHost, clientIp, isAdmin, requireAdmin };
+module.exports = { isLoopbackHost, clientIp, isAdmin, requireAdmin, ADMIN_WRITE_HEADER };

@@ -3,6 +3,7 @@
 const { WebSocketServer, WebSocket } = require('ws');
 const { getBaseUrl, getShareBase, friendlyBase } = require('./baseUrl');
 const store = require('./store');
+const { isAllowedUpgrade } = require('./request-guard');
 
 const HEARTBEAT_MS = 30000;
 
@@ -21,7 +22,13 @@ function clean(s, max) {
  * dashboard can show who's online and send files straight to one of them.
  */
 function createHub(server) {
-  const wss = new WebSocketServer({ server, path: '/ws' });
+  // Browsers don't apply CORS to WebSockets, so without this any website open
+  // on the host PC could join the board through that browser.
+  const wss = new WebSocketServer({
+    server,
+    path: '/ws',
+    verifyClient: ({ req }) => isAllowedUpgrade(req),
+  });
 
   const sendTo = (ws, type, payload) => {
     if (ws.readyState === WebSocket.OPEN) {
