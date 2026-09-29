@@ -16,8 +16,9 @@ function sanitize(s, max) {
 /**
  * Host console API. Admin is the machine running MeghXL — every browser on
  * the host PC. Other LAN devices get the normal dashboard, never the console.
- * An ADMIN_IP device or the ADMIN_KEY (`x-admin-key` header / `?key=`) can also
- * act as admin (e.g. for remote administration over a VPN/proxy). See isAdmin().
+ * An ADMIN_IP device or the ADMIN_KEY (`x-admin-key` header) can also act as
+ * admin (e.g. for remote administration over a VPN/proxy). Admin writes also
+ * need `x-meghxl-request: 1`. See isAdmin() and requireAdmin().
  */
 module.exports = function createAdminRouter({ hub, files }) {
   const router = express.Router();

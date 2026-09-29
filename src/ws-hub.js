@@ -103,8 +103,12 @@ function createHub(server) {
   wss.on('connection', (ws, req) => {
     ws.isAlive = true;
     ws.device = null;
-    ws.ip = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
-      (req.socket && req.socket.remoteAddress) || '';
+    // Trust X-Forwarded-For only from a reverse proxy on this machine. From
+    // anywhere else it's just a claim, and a LAN device could use it to appear
+    // as "this computer" or dodge an IP block.
+    const peer = (req.socket && req.socket.remoteAddress) || '';
+    const fromLocalProxy = /^(::ffff:)?127\.|^::1$/.test(peer);
+    ws.ip = (fromLocalProxy && String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()) || peer;
     ws.connectedAt = Date.now();
     ws.on('pong', () => { ws.isAlive = true; });
 
@@ -150,8 +154,10 @@ function createHub(server) {
         };
         broadcastRoster();
       } else if (msg.type === 'rename') {
-        // A device may rename ONLY itself: we use this socket's own id and ignore
-        // any target in the message, so no one can rename someone else's device.
+        // A socket renames only the device it identified as; any target in the
+        // message is ignored. Device ids are not secret, though — the roster
+        // shares them — so a LAN device that identifies with someone else's id
+        // acts as that device. Known limitation, see SECURITY.md.
         const name = clean(msg.name, 60);
         if (!ws.device || !name) return;
         const id = ws.device.id;

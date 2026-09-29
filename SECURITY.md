@@ -41,13 +41,15 @@ MeghXL is deliberately built to be **auditable in one sitting**:
 - **No telemetry, analytics, tracking, or “phone-home”.** Nothing about you, your
   files, your devices, or your usage is ever sent anywhere. The server serves
   your files on your network and (optionally) advertises an mDNS name on the LAN.
-- **Exactly one outbound request exists, and only when you ask for it.** Pressing
+- **Exactly one outbound request exists, and only on demand.** Pressing
   **Check for updates** (About page, or the desktop app's tray) performs a single
   `GET` to the GitHub releases API to compare version numbers. It sends no
   identifiers, no file names, no usage data — nothing but the request itself, and
-  the answer is cached for an hour. Never happens on a timer, at launch, or in
-  the background. The code is one short file, `src/routes/update.js`; read it.
-  If you want it gone, delete that route — nothing else depends on it.
+  the answer is cached for an hour. Never on a timer, at launch, or in the
+  background. Other websites can't trigger it (cross-site requests are refused);
+  a script on your LAN could, since the endpoint needs no login. The code is one
+  short file, `src/routes/update.js`; delete that route if you want it gone —
+  nothing else depends on it.
 - **Desktop updates are signature-verified.** The app only installs a package
   signed with the project's private key, checked against the public key compiled
   into the bundle. A tampered or unsigned package is refused, so a compromised
@@ -101,10 +103,12 @@ MeghXL assumes the **local network is trusted**. That is the security boundary.
 |---|---|---|
 | **Path traversal** | Client filenames never touch disk; files are stored under server-generated random names and served only by token, with a path-containment check. | `src/routes/files.js` (`storedPath`), `src/ids.js` |
 | **Guessing private links** | Tokens are **128-bit**, URL-safe random strings (`crypto.randomBytes(16)`). | `src/ids.js` |
-| **Privilege escalation to admin** | The host console is **host-only**: granted only to a raw loopback/own-interface connection (no forwarding header), an `ADMIN_IP`, or `ADMIN_KEY`. A spoofed `X-Forwarded-For` cannot grant admin (auth uses the raw socket). | `src/admin-auth.js` (+ tests) |
+| **Another LAN device becoming admin** | The host console is granted only to a connection from the host machine itself (no forwarding header), an `ADMIN_IP`, or the `ADMIN_KEY` header. A spoofed `X-Forwarded-For` cannot grant admin, and the host must be named by an address or its own name, so a device answering mDNS for some other `.local` name can't borrow it. | `src/admin-auth.js`, `src/request-guard.js` (+ tests) |
+| **Websites attacking the hub through the host's browser** (DNS rebinding, CSRF, cross-site WebSockets, clickjacking) | Because any web page open on the host PC can make its browser connect from loopback, the machine check alone is not enough. Every request is also checked: unknown `Host` names are refused (rebinding), writes must come from a MeghXL page (`Origin` / `Sec-Fetch-Site`), admin writes need a header only MeghXL's own script sends, WebSocket handshakes must be same-origin, and no page can be framed. **Fixed in 1.0.1** — see the advisory below. | `src/request-guard.js`, `src/admin-auth.js` (+ tests) |
 | **XSS / HTML injection** | All user-supplied content (filenames, notes, device names) is inserted with `textContent`. `innerHTML` is used **only** for the project's own static SVG icon markup — never for user input. | `public/app.js`, `public/admin.js` |
+| **Uploaded files running as pages** | Downloads are always `Content-Disposition: attachment` with `nosniff`, and carry `Content-Security-Policy: sandbox` and `Cross-Origin-Resource-Policy: same-origin` — so an uploaded `.html` or `.svg` can't run on MeghXL's origin or be embedded by another site. | `src/routes/files.js` |
 | **HTTP header injection** | `Content-Disposition` filenames are sanitized (control chars stripped, RFC 5987 encoded). | `src/routes/files.js` |
-| **Memory exhaustion** | Uploads stream to disk (never buffered in RAM); upload size is capped (`MAX_UPLOAD_MB`, default 500); JSON bodies capped at 16 KB. | `src/uploads.js`, `server.js` |
+| **Memory exhaustion** | Uploads stream to disk (never buffered in RAM); upload size can be capped with `MAX_UPLOAD_MB` (unlimited by default); JSON bodies capped at 16 KB. | `src/uploads.js`, `server.js` |
 
 ## What MeghXL does **not** do (limitations, stated plainly)
 
@@ -119,14 +123,41 @@ Honesty matters more than reassurance:
   network directly.
 - It is **not designed to be directly internet-facing** without your own
   authentication layer in front (see below).
+- **Admin is tied to the host machine, not to a login.** Every browser on the host
+  PC — and every program and OS user on it — has admin rights. Don't run MeghXL on
+  a PC shared with people you don't trust. A reverse proxy on the same machine must
+  send `X-Forwarded-For`, or the people it forwards look like the host. A per-install
+  pairing secret is planned for 1.1.
+- **Device identity is not authenticated between LAN devices.** A device on your
+  network can claim another device's id and receive its direct sends and private
+  messages, and sender names on notes and messages are self-declared. Only the
+  **announcement** label ("Announced by Admin (host)") is reserved to the admin.
+- **Host names.** IP addresses, `localhost`, and local names (`.local`, `.lan`,
+  single-label names, …) work out of the box. Any other name — a proxy's public
+  domain, a Tailscale `*.ts.net` name — must be listed in `ALLOWED_HOSTS` or be the
+  host in `PUBLIC_BASE_URL`.
 
 ## Hardening checklist (if you expose it beyond a trusted LAN)
 
 - Put it behind a **VPN** or an **authenticated reverse proxy**; never port-forward
   it raw.
-- Set **`ADMIN_KEY`** for admin access from outside the host machine.
+- A random **admin key** is generated on first run and printed in the terminal;
+  set **`ADMIN_KEY`** to choose your own. Enter it on the console's unlock form
+  rather than in a URL. Scripts send it as the `x-admin-key` header (admin writes
+  also need `x-meghxl-request: 1`).
+- Behind a reverse proxy, **preserve the `Host` header** and set `PUBLIC_BASE_URL`
+  (or `ALLOWED_HOSTS`) to the public name, so rebinding protection can see the real
+  host name.
 - Prefer **private + expiry + one-time** links for anything sensitive.
 - Keep dependencies current (`npm audit`, Dependabot), and run a recent Node LTS.
+
+## Security advisories
+
+| Version | Issue | Credit |
+|---|---|---|
+| **1.0.1** | A website open in a browser on the host PC could act as the host console — read and delete files, post announcements, block devices — via CSRF, DNS rebinding or cross-site WebSockets. Fixed by validating `Host`, `Origin` and framing on every request. | kta1kri |
+
+Published advisories: https://github.com/riponcm/MeghXL/security/advisories
 
 ---
 

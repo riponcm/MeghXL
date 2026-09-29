@@ -95,7 +95,7 @@ function printBanner() {
   console.log('  └─────────────────────────────────────────────');
   console.log('');
   console.log(`  Host console:  http://localhost:${config.port}/admin   (opens automatically on this PC)`);
-  if (runtime.adminKey) console.log(`                 remote admin: append ?key=${runtime.adminKey}`);
+  if (runtime.adminKey) console.log(`                 remote admin key: ${runtime.adminKey}  (enter it on the console's unlock form)`);
   console.log('');
   console.log('  Scan to open the dashboard on your phone:');
   console.log('');

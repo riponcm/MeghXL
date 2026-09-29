@@ -224,7 +224,8 @@ All optional — set as environment variables (for example, `PORT=8080 npm start
 | `MDNS_NAME` | `meghxl` | The `<name>.local` mDNS hostname to advertise |
 | `MDNS` | _(on)_ | Set to `off` to disable mDNS advertising |
 | `ADMIN_IP` | _(unset)_ | Extra PC(s), by LAN IP, that get the host console |
-| `ADMIN_KEY` | _(unset)_ | Optional key for remote admin (e.g. behind a VPN/proxy) |
+| `ADMIN_KEY` | _(auto-generated)_ | Key for admin from another device; a random one is generated and printed at startup if unset |
+| `ALLOWED_HOSTS` | _(unset)_ | Extra host names you reach MeghXL by (comma-separated) — e.g. a proxy's public domain or a Tailscale `*.ts.net` name. IP addresses and local names (`.local`, `.lan`, …) work without it |
 
 ## Host console
 
@@ -232,11 +233,23 @@ MeghXL has a private control panel at **`/admin`**:
 
 - On the **computer running the server**, it opens automatically — no key, no
   login. Every browser on that machine is admin (works via `localhost`, the LAN
-  IP, or `meghxl.local`).
-- **Every other device** on the network just sees the normal dashboard — the
-  console is never exposed to them.
+  IP, or `meghxl.local`), so don't run MeghXL on a PC shared with people you
+  don't trust.
+- **Every other device** on the network just sees the normal dashboard — to
+  reach the console it needs `ADMIN_IP` or the admin key.
 - Need admin from a different PC? Designate it by LAN IP with `ADMIN_IP=...`, or
-  use `ADMIN_KEY`.
+  enter the admin key (printed in the terminal at startup) on the console's
+  unlock form.
+
+Scripting the admin API — send the key as a header, plus `x-meghxl-request` on
+anything that changes state:
+
+```bash
+curl -H "x-admin-key: $KEY" http://hub:3000/api/admin/state
+curl -X POST -H "x-admin-key: $KEY" -H "x-meghxl-request: 1" \
+     -H "Content-Type: application/json" -d '{"text":"Back at 6pm"}' \
+     http://hub:3000/api/admin/announce
+```
 
 From the console you can manage **devices** (block/unblock, send a file), broadcast
 **announcements**, manage every **file**, and adjust **settings** (default expiry).
@@ -256,6 +269,13 @@ and QR codes at that address:
 ```bash
 PUBLIC_BASE_URL=https://meghxl.your-company.com npm start
 ```
+
+MeghXL refuses host names it doesn't recognise, which is what stops DNS-rebinding
+attacks. IP addresses and local names (`.local`, `.lan`, single-label names) work
+out of the box; the `PUBLIC_BASE_URL` host is added automatically. Reaching it by
+any other name — a Tailscale `*.ts.net` name, say — needs that name in
+`ALLOWED_HOSTS`. Behind a reverse proxy, have it **preserve the `Host` header** and
+send `X-Forwarded-For`.
 
 > Whatever you expose it through, add authentication at that layer. On the LAN
 > itself, treat the network as trusted and use **private + expiry + one-time**
@@ -434,10 +454,12 @@ make it a **one-time link** that deletes itself after a single download.
 ### Is it safe to use at the office?
 
 MeghXL is designed for a network you already trust. Anyone who can reach the URL can
-see public files, so treat it like a shared drive. The host console — device blocking,
-announcements, file management — is restricted to the machine running the server, and
-verified at the socket rather than from a spoofable header. For anything sensitive,
-use a private link with an expiry. See [SECURITY.md](./SECURITY.md).
+see public files and post messages, so treat it like a shared drive. The host console —
+device blocking, announcements, file management — is limited to the machine running the
+server, an `ADMIN_IP`, or the admin key, and since 1.0.1 it also refuses requests that
+websites open on the host PC try to make on its behalf. Device names and direct sends
+are not authenticated between LAN devices. For anything sensitive, use a private link
+with an expiry, and keep MeghXL up to date. See [SECURITY.md](./SECURITY.md).
 
 ### Do I need to install anything on phones?
 

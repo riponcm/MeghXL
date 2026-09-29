@@ -2,6 +2,7 @@
 
 const express = require('express');
 const config = require('./../config');
+const { isSameOrigin } = require('../request-guard');
 
 // MeghXL makes no network calls of its own. This endpoint is the single
 // exception, and it only runs when someone presses "Check for updates":
@@ -28,6 +29,9 @@ module.exports = function createUpdateRouter() {
   let cache = null; // { at, body }
 
   router.get('/api/update', async (req, res) => {
+    // Only our own page (or a script) may trigger the check — not an <img> tag
+    // on some other website.
+    if (!isSameOrigin(req)) return res.status(403).json({ error: 'Cross-site request refused.' });
     const current = config.version;
     if (cache && Date.now() - cache.at < CACHE_MS) {
       return res.json({ ...cache.body, current, cached: true });
@@ -54,7 +58,8 @@ module.exports = function createUpdateRouter() {
         latest: latest || null,
         notes: typeof rel.body === 'string' ? rel.body.slice(0, 4000) : '',
         publishedAt: rel.published_at || null,
-        url: rel.html_url || RELEASES_PAGE,
+        // Only ever link to this project's own release pages.
+        url: typeof rel.html_url === 'string' && rel.html_url.startsWith(RELEASES_PAGE + '/') ? rel.html_url : RELEASES_PAGE,
         updateAvailable: Boolean(latest) && isNewer(latest, current),
       };
       cache = { at: Date.now(), body };

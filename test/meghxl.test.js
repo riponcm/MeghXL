@@ -11,7 +11,7 @@ process.env.UPLOAD_DIR = path.join(tmp, 'uploads');
 process.env.DATA_FILE = path.join(tmp, 'metadata.json');
 process.env.MAX_UPLOAD_MB = '5';
 // A proxy's public name, as an operator would declare it.
-process.env.ALLOWED_HOSTS = 'hub.example.com';
+process.env.ALLOWED_HOSTS = 'hub.example.com, https://x.example.org:8443/';
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -20,6 +20,8 @@ const http = require('node:http');
 const WebSocket = require('ws');
 const { buildApp } = require('../server');
 const { createHub } = require('../src/ws-hub');
+const { detectLanIPv4 } = require('../src/network');
+const lanIp = () => detectLanIPv4();
 
 const runtime = require('../src/runtime');
 
@@ -246,6 +248,7 @@ test('CSRF: a cross-site form POST cannot clear the files', async () => {
     .set('Content-Type', 'application/x-www-form-urlencoded')
     .send('');
   assert.equal(r.status, 403);
+  assert.equal(r.body.error, 'Cross-site request refused.', 'the request guard must be what refuses it');
   const still = await request(app).get(`/d/${token}`).buffer(true).parse(binaryParser);
   assert.equal(still.status, 200, 'the file must still be there');
 });
@@ -254,6 +257,13 @@ test('CSRF: Origin "null" (sandboxed frame / data: page) is refused', async () =
   const r = await request(app).post('/api/admin/files/clear')
     .set('Origin', 'null').set('x-meghxl-request', '1');
   assert.equal(r.status, 403);
+});
+
+test('CSRF: a cross-site form POST to a non-admin route is refused by the guard', async () => {
+  const r = await request(app).post('/api/notes')
+    .set('Origin', EVIL).set('Content-Type', 'application/x-www-form-urlencoded').send('text=hi');
+  assert.equal(r.status, 403);
+  assert.equal(r.body.error, 'Cross-site request refused.');
 });
 
 test('CSRF: Sec-Fetch-Site cross-site or same-site is refused even without Origin', async () => {
@@ -270,6 +280,7 @@ test('CSRF: a cross-site multipart upload cannot plant files on the board', asyn
     .field('visibility', 'public')
     .attach('file', Buffer.from('planted'), 'planted.txt');
   assert.equal(r.status, 403);
+  assert.equal(r.body.error, 'Cross-site request refused.');
 });
 
 test('CSRF: an admin write without the x-meghxl-request header is refused, even same-origin', async () => {
@@ -331,12 +342,113 @@ test('WebSocket: cross-site origins and foreign hosts cannot join the board', as
   });
 
   try {
-    assert.notEqual(await attempt({ origin: EVIL }), 'open', 'cross-site origin must be refused');
-    assert.notEqual(await attempt({ origin: 'null' }), 'open', 'null origin must be refused');
-    assert.notEqual(await attempt({ headers: { Host: 'rebind.evil.example' } }), 'open', 'foreign Host must be refused');
+    assert.equal(await attempt({ origin: EVIL }), 401, 'cross-site origin must be refused');
+    assert.equal(await attempt({ origin: 'null' }), 401, 'null origin must be refused');
+    assert.equal(await attempt({ headers: { Host: 'rebind.evil.example' } }), 401, 'foreign Host must be refused');
     assert.equal(await attempt({ origin: `http://127.0.0.1:${port}` }), 'open', 'same-origin must connect');
     assert.equal(await attempt({}), 'open', 'a non-browser client (no Origin) must connect');
   } finally {
+    for (const client of hub.wss.clients) client.terminate();
+    hub.wss.close();
+    await new Promise((r) => server.close(r));
+  }
+});
+
+test('clickjacking: no page can be framed by another site', async () => {
+  for (const path of ['/', '/admin', '/api/files']) {
+    const r = await request(app).get(path);
+    assert.equal(r.headers['x-frame-options'], 'DENY', `${path} X-Frame-Options`);
+    assert.match(r.headers['content-security-policy'] || '', /frame-ancestors 'none'/, `${path} CSP`);
+  }
+});
+
+test('admin needs the hub named by an address or this machine\'s own name', async () => {
+  const short = os.hostname().toLowerCase().split('.')[0];
+  for (const host of ['localhost:3000', '127.0.0.1:3000', '[::1]:3000', 'app.localhost',
+                      'meghxl.local:3000', short, `${short}.local`]) {
+    const r = await request(app).get('/api/admin/files').set('Host', host);
+    assert.equal(r.status, 200, `admin via "${host}" must work`);
+  }
+  // A LAN device can answer mDNS/LLMNR for these, so they may use the board but
+  // must not reach the console — nor may a proxy's public name.
+  for (const host of ['evil.local:3000', 'wpad', 'printer.lan', 'hub.example.com']) {
+    const admin = await request(app).get('/api/admin/files').set('Host', host);
+    assert.equal(admin.status, 403, `admin via "${host}" must be refused`);
+    const board = await request(app).get('/api/files').set('Host', host);
+    assert.equal(board.status, 200, `the board via "${host}" must still work`);
+  }
+});
+
+test('a proxy that drops the port from Host still works when the browser says same-origin', async () => {
+  const ok = await request(app).post('/api/notes')
+    .set('Host', 'hub.lan').set('Origin', 'https://hub.lan:8443').set('Sec-Fetch-Site', 'same-origin')
+    .send({ text: 'via nginx $host' });
+  assert.equal(ok.status, 200);
+  const noVouch = await request(app).post('/api/notes')
+    .set('Host', 'hub.lan').set('Origin', 'https://hub.lan:8443').send({ text: 'x' });
+  assert.equal(noVouch.status, 403, 'without the browser vouching, a port mismatch is a different origin');
+});
+
+test('ALLOWED_HOSTS accepts full URLs, and the 403 names the host it refused', async () => {
+  const ok = await request(app).get('/api/health').set('Host', 'x.example.org:8443');
+  assert.equal(ok.status, 200);
+  const r = await request(app).get('/api/health').set('Host', 'imac.tail1234.ts.net');
+  assert.equal(r.status, 403);
+  assert.match(r.text, /"imac\.tail1234\.ts\.net"/);
+  assert.match(r.text, /ALLOWED_HOSTS/);
+});
+
+test('downloads are sandboxed and cannot be embedded by other sites', async () => {
+  const token = await uploadPrivate('sandboxed');
+  const r = await request(app).get(`/d/${token}`).buffer(true).parse(binaryParser);
+  assert.match(r.headers['content-security-policy'], /sandbox/);
+  assert.equal(r.headers['cross-origin-resource-policy'], 'same-origin');
+  assert.match(r.headers['content-disposition'], /^attachment/);
+});
+
+test('HEAD on a one-time link does not use it up', async () => {
+  const up = await request(app).post('/api/upload')
+    .field('oneTime', 'true').attach('file', Buffer.from('once'), 'once.txt');
+  const token = up.body.token;
+  const head = await request(app).head(`/d/${token}`);
+  assert.equal(head.status, 200);
+  const first = await request(app).get(`/d/${token}`).buffer(true).parse(binaryParser);
+  assert.equal(first.status, 200, 'the real download must still work after a HEAD');
+  const second = await request(app).get(`/d/${token}`);
+  assert.equal(second.status, 410);
+});
+
+test('the update check cannot be triggered by another website', async () => {
+  const r = await request(app).get('/api/update').set('Sec-Fetch-Site', 'cross-site');
+  assert.equal(r.status, 403);
+});
+
+test('WebSocket: X-Forwarded-For is trusted only from a proxy on this machine', { skip: !lanIp() && 'no LAN address' }, async () => {
+  const server = http.createServer();
+  const hub = createHub(server);
+  await new Promise((r) => server.listen(0, '0.0.0.0', r));
+  const port = server.address().port;
+  const join = (host, id) => new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://${host}:${port}/ws`, { headers: { 'X-Forwarded-For': '127.0.0.1' } });
+    ws.on('open', () => { ws.send(JSON.stringify({ type: 'identify', deviceId: id, name: id, kind: 'desktop' })); setTimeout(() => resolve(ws), 150); });
+    ws.on('error', reject);
+  });
+  const sockets = [];
+  try {
+    sockets.push(await join(lanIp(), 'from-lan'));
+    sockets.push(await join('127.0.0.1', 'from-local-proxy'));
+    const ipOf = (id) => {
+      const dev = hub.rosterDetailed().find((d) => d.id === id);
+      assert.ok(dev, `device ${id} must have identified`);
+      return String(dev.ip).replace(/^::ffff:/, '');
+    };
+    assert.equal(ipOf('from-lan'), lanIp(), 'a LAN device is recorded at its real address, not the one it claimed');
+    assert.equal(ipOf('from-local-proxy'), '127.0.0.1', 'a local reverse proxy is still believed');
+  } finally {
+    // ws v8's wss.close() leaves client connections open, and server.close()
+    // waits for them — terminate both ends or the test process never exits.
+    for (const ws of sockets) ws.terminate();
+    for (const client of hub.wss.clients) client.terminate();
     hub.wss.close();
     await new Promise((r) => server.close(r));
   }

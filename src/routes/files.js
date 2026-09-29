@@ -207,6 +207,10 @@ module.exports = function createFilesRouter(hub) {
     res.setHeader('Content-Type', f.mime || 'application/octet-stream');
     res.setHeader('Content-Disposition', contentDisposition(f.originalName));
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    // Even if some browser rendered an upload instead of saving it, it would run
+    // with no script, no origin and no framing — and other sites can't embed it.
+    res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; frame-ancestors 'none'");
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Cache-Control', 'no-store');
 
@@ -240,6 +244,13 @@ module.exports = function createFilesRouter(hub) {
       res.status(200);
       res.setHeader('Content-Length', total);
       stream = fs.createReadStream(p);
+    }
+
+    // HEAD asks about a file without fetching it — link previewers do this.
+    // Answer with the headers only, and don't let it burn a one-time link.
+    if (req.method === 'HEAD') {
+      stream.destroy();
+      return res.end();
     }
 
     if (f.oneTime) {

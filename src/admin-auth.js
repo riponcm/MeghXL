@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const config = require('./config');
 const runtime = require('./runtime');
 const { localAddresses } = require('./network');
+const { hostnameOf, isAdminHost } = require('./request-guard');
 
 // True ONLY for a request that originates from the machine running the server —
 // a raw loopback or own-interface connection with NO forwarding header. Every
@@ -42,15 +43,19 @@ function keyMatches(given) {
 //
 // The loopback test only proves which *machine* sent a request, not which
 // *page*: a website open on the host PC can make its browser call us too. The
-// request guard (request-guard.js) is what rules those out — it refuses foreign
-// Host headers (DNS rebinding) and cross-site writes (CSRF) before this runs.
+// request guard (request-guard.js) rules those out before this runs — foreign
+// Host headers (DNS rebinding), cross-site writes (CSRF) and framing
+// (clickjacking). The IP-based grants below also require the hub to be named by
+// an address or this machine's own name, so a LAN device answering mDNS for
+// some other .local name can't rebind that name onto the host's trust.
 //
 // The key is read from a header only, never the query string, which would leave
 // it in browser history, proxy logs and Referer headers. (The console still
 // accepts /admin?key=… — admin.js moves it into a header and off the URL.)
 function isAdmin(req) {
-  if (isLoopbackHost(req)) return true;
-  if (config.adminIps.length && config.adminIps.includes(clientIp(req))) return true;
+  const namedByUs = isAdminHost(hostnameOf(req.headers.host));
+  if (namedByUs && isLoopbackHost(req)) return true;
+  if (namedByUs && config.adminIps.length && config.adminIps.includes(clientIp(req))) return true;
   if (keyMatches(req.get('x-admin-key'))) return true;
   return false;
 }
