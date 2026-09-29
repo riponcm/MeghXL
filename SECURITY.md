@@ -155,7 +155,7 @@ Honesty matters more than reassurance:
 
 | Version | Issue | Credit |
 |---|---|---|
-| **1.0.1** | A website open in a browser on the host PC could act as the host console — read and delete files, post announcements, block devices — via CSRF, DNS rebinding or cross-site WebSockets. Fixed by validating `Host`, `Origin` and framing on every request. | kta1kri |
+| **1.0.1** ([GHSA-q5qg-gwfw-p5w5](https://github.com/riponcm/MeghXL/security/advisories/GHSA-q5qg-gwfw-p5w5)) | A website open in a browser on the host PC could act as the host console — read and delete files, post announcements, block devices — via CSRF, DNS rebinding or cross-site WebSockets. Fixed by validating `Host`, `Origin` and framing on every request. | kta1kri |
 
 Published advisories: https://github.com/riponcm/MeghXL/security/advisories
 

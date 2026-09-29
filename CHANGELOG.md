@@ -21,6 +21,7 @@ should mirror the entry below it.
   unknown `Host` names are refused, writes must come from a MeghXL page, admin
   writes need a header only MeghXL's own script sends, WebSocket handshakes must
   be same-origin, and no page can be framed. Reported by **kta1kri**.
+  [GHSA-q5qg-gwfw-p5w5](https://github.com/riponcm/MeghXL/security/advisories/GHSA-q5qg-gwfw-p5w5)
 - Admin rights also require the hub to be named by an address or this machine's
   own name, so a device on the LAN answering mDNS for another name can't borrow
   the host's trust.
