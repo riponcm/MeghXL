@@ -100,17 +100,32 @@ jobs:
         shell: bash
         run: bash desktop/scripts/build-server.sh ${{ matrix.target }}
 
-      # The AppImage tool runs ldd on every program it packs; show what ldd
-      # makes of the compiled server, so a failure there is explained.
-      - name: Inspect the server binary (Linux)
+      # Linux: .deb and .rpm only, no AppImage. Building an AppImage runs
+      # linuxdeploy, which rewrites every program it packs (patchelf RUNPATH);
+      # that corrupts self-contained executables like the Bun-compiled server
+      # and then crashes on them ("Failed to run ldd"). Open upstream as
+      # tauri-apps/tauri#5189. The updater handles .deb and .rpm installs.
+      - name: Linux packages
         if: runner.os == 'Linux'
+        run: echo "LINUX_ARGS=--bundles deb,rpm" >> "$GITHUB_ENV"
+
+      # Temporary check: does the AppImage published with 1.0.1 still have a
+      # working server, or did linuxdeploy corrupt it there too?
+      - name: Check the 1.0.1 AppImage's server (Linux)
+        if: runner.os == 'Linux'
+        continue-on-error: true
         run: |
-          BIN=$(ls desktop/src-tauri/binaries/meghxl-server-*)
-          file "$BIN"
-          ls -la "$BIN"
-          readelf -l "$BIN" | grep -i -A1 interpreter || true
-          ldd "$BIN"; echo "ldd exit code: $?"
-          ldd --version | head -1
+          cd "$RUNNER_TEMP"
+          curl -sfL -o old.AppImage https://github.com/riponcm/MeghXL/releases/download/v1.0.1/MeghXL_1.0.1_amd64.AppImage
+          chmod +x old.AppImage && ./old.AppImage --appimage-extract > /dev/null
+          S=squashfs-root/usr/bin/meghxl-server
+          readelf -d "$S" | grep -i -E "runpath|rpath" || echo "no RUNPATH"
+          ldd "$S" > /dev/null 2>&1 && echo "ldd: ok" || echo "ldd: FAILS on the 1.0.1 server"
+          mkdir -p d/u
+          PORT=3997 MDNS=off UPLOAD_DIR=d/u DATA_FILE=d/m.json "$S" > old.log 2>&1 &
+          sleep 6
+          curl -sf -m 3 http://127.0.0.1:3997/api/health && echo " <- 1.0.1 AppImage server works" || { echo "1.0.1 AppImage server does NOT start:"; head -20 old.log; }
+          kill %1 2>/dev/null || true
 
       # ---- macOS: Developer ID signing + notarization -----------------------
       - name: Import the Developer ID certificate
@@ -211,7 +226,7 @@ jobs:
           # GITHUB_ENV from the steps above — only when they're configured.
         with:
           projectPath: desktop
-          args: --target ${{ matrix.target }} ${{ env.WIN_SIGN_ARGS }}
+          args: --target ${{ matrix.target }} ${{ env.WIN_SIGN_ARGS }} ${{ env.LINUX_ARGS }}
           # Only set on a tag push, which is what makes tauri-action publish.
           tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
           releaseName: MeghXL __VERSION__
@@ -246,6 +261,20 @@ jobs:
             kill $PID
             echo "Signed server ran 500 requests under the hardened runtime."
           fi
+
+      # The server inside the .deb, as installed, must actually run.
+      - name: Verify the packaged server (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          DEB=$(ls desktop/src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb | head -1)
+          rm -rf "$RUNNER_TEMP/deb" && mkdir -p "$RUNNER_TEMP/deb/d/u"
+          dpkg-deb -x "$DEB" "$RUNNER_TEMP/deb"
+          S="$RUNNER_TEMP/deb/usr/bin/meghxl-server"
+          PORT=3996 MDNS=off UPLOAD_DIR="$RUNNER_TEMP/deb/d/u" DATA_FILE="$RUNNER_TEMP/deb/d/m.json" "$S" > "$RUNNER_TEMP/deb.log" 2>&1 &
+          for i in $(seq 1 40); do curl -sf -m 1 http://127.0.0.1:3996/api/health > /dev/null && break; sleep 0.25; done
+          curl -sf -m 2 http://127.0.0.1:3996/api/health || { cat "$RUNNER_TEMP/deb.log"; echo "::error::The packaged server doesn't start"; exit 1; }
+          echo " <- the server in the .deb runs"
+          kill %1
 
       - name: Verify the Windows signatures
         if: runner.os == 'Windows' && env.WIN_SIGNING == 'true'
