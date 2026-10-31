@@ -50,19 +50,36 @@ Apache 2.0 license.
 
 ## How MeghXL compares
 
-|  | **MeghXL** | LocalSend | PairDrop / Snapdrop | WeTransfer |
-|---|---|---|---|---|
-| Install on the **receiving** device | Nothing — any browser | App on every device | Browser on both ends | Browser |
-| Works with **no internet** | Yes | Yes | Yes, if self-hosted | No |
-| Files leave your network | Never | Never | Never | Yes — uploaded to their cloud |
-| Size limit | Your disk | Your disk | Varies | Capped by plan |
-| Files stay available after transfer | Yes — a shared board | No, one-shot | No, one-shot | Until the link expires |
-| Admin controls for an office | Yes — host console, private mode, approvals | No | No | Paid plans |
-| Accounts required | None | None | None | For most features |
+|  | **MeghXL** | AirDrop | LocalSend | WeTransfer |
+|---|:---:|:---:|:---:|:---:|
+| Windows, Mac, Linux, Android **and** iPhone together | ✅ | ❌ Apple only | ✅ | ✅ |
+| Phones and guests install **nothing** | ✅ any browser | ✅ built in | ❌ app needed to send | ✅ |
+| Works with **no internet** | ✅ | ✅ | ✅ | ❌ |
+| Files never leave your network | ✅ | ✅ | ✅ | ❌ uploaded to their cloud |
+| No file-size limit | ✅ | ✅ | ✅ | ❌ capped by plan |
+| **Shared board** — files wait for whoever needs them | ✅ | ❌ one-shot | ❌ one-shot | 🟡 a link, until it expires |
+| **Resumes** after a phone locks or the Wi-Fi drops | ✅ | — | ❌ | — |
+| **Host console** — devices, blocking, approvals, announcements | ✅ | ❌ | ❌ | 🟡 paid plans |
+| **Private mode** for café, office and hotel Wi-Fi | ✅ QR or code | 🟡 contacts only | — | — |
+| No account, free and open source | ✅ | 🟡 free, closed | ✅ | ❌ account + paid tiers |
 
-MeghXL takes the **hub-and-spoke** approach rather than peer-to-peer: one computer
-runs the server and everything else just opens a browser. That's the trade-off —
-one machine has to be on, and in exchange nobody else installs anything.
+<sub>✅ yes · ❌ no · 🟡 partly · — not something we could verify</sub>
+
+**Only in MeghXL**
+
+- **A board, not a beam.** Drop a file once and it's there for the whole team —
+  no need for the other person to be online right then.
+- **Your own hub, with an admin.** One computer hosts; the host console lets you
+  see every device, block one, approve newcomers and post announcements.
+- **Safe on shared Wi-Fi.** Private mode keeps strangers out; devices can't pose
+  as each other or as the host; desktop apps check the host's signing key.
+- **Disguised programs get caught.** A `photo.jpg` that's really a program is
+  flagged before anyone saves it.
+- **Big files from phones actually arrive.** Uploads pause when the screen locks
+  and carry on where they stopped.
+
+The trade-off, honestly: MeghXL is **hub-and-spoke**, not peer-to-peer — one
+computer has to be on. In exchange, nobody else installs anything.
 
 ## Preview
 
