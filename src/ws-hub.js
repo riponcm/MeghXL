@@ -7,8 +7,8 @@ const join = require('./join');
 const { isAllowedUpgrade } = require('./request-guard');
 const { isAdmin } = require('./admin-auth');
 const { validId, handleOf, remoteIp } = require('./identity');
-const { cleanName } = require('./text');
-const { createCounter } = require('./limits');
+const { cleanName, skeleton } = require('./text');
+const { createCounter, createBucket } = require('./limits');
 
 const HEARTBEAT_MS = 30000;
 // Every message a client sends is a few hundred bytes of JSON. Without a cap
@@ -39,6 +39,31 @@ function createHub(server) {
   // An error event with no listener throws and takes the process down.
   wss.on('error', (err) => console.error(`[ws] ${err.message}`));
   const perIp = createCounter(MAX_SOCKETS_PER_IP);
+  // New devices remembered per address: plenty for real phones and laptops,
+  // too few for a script minting ids to push everyone else's names out.
+  const newDevices = createBucket({ burst: 20, perMinute: 10 / 60 });
+
+  /**
+   * A name nobody else online is using. Compared by skeleton, so "Sam" and
+   * "Ѕam" (Cyrillic S) count as the same; the newcomer gets "Sam (2)".
+   */
+  function uniqueName(id, wanted) {
+    const taken = new Set();
+    for (const c of wss.clients) if (c.device && c.device.id !== id) taken.add(skeleton(c.device.name));
+    if (!taken.has(skeleton(wanted))) return wanted;
+    for (let n = 2; n < 100; n++) {
+      const candidate = `${wanted} (${n})`;
+      if (!taken.has(skeleton(candidate))) return candidate;
+    }
+    return `${wanted} (${Date.now() % 1000})`;
+  }
+
+  /** The current name of an online device, by its id. */
+  function nameOfId(id) {
+    if (!id) return null;
+    for (const c of wss.clients) if (c.device && c.device.id === id) return c.device.name;
+    return null;
+  }
 
   const sendTo = (ws, type, payload) => {
     if (ws.readyState === WebSocket.OPEN) {
@@ -191,6 +216,12 @@ function createHub(server) {
         if (ws.device) return;
         const id = validId(msg.deviceId);
         if (!id) return;
+        // A browser upgrading from 1.0.1 sends its old id once, so a block on
+        // that id follows it to the new one.
+        const legacyId = validId(msg.legacyId);
+        if (legacyId && store.isBlocked(legacyId, null)) {
+          store.addBlock({ deviceId: id, ip: ws.ip, name: cleanName(msg.name) || 'Device', at: Date.now() });
+        }
         if (store.isBlocked(id, ws.ip)) {
           sendTo(ws, 'blocked', { reason: 'This device is blocked by the host.' });
           ws.close();
@@ -198,10 +229,12 @@ function createHub(server) {
         }
         // A previously-saved name (server is the source of truth) wins, so names
         // survive restarts; otherwise remember the name this device announces.
-        let name = store.getDeviceName(id);
-        if (!name) {
-          name = cleanName(msg.name) || 'Device';
-          store.setDeviceName(id, name);
+        const saved = store.getDeviceName(id);
+        let name = uniqueName(id, saved || cleanName(msg.name) || 'Device');
+        if (!saved || name !== saved) {
+          // Remember it — unless this address is minting devices too fast, in
+          // which case the name lasts for this connection only.
+          if (saved || newDevices.take(ws.ip)) store.setDeviceName(id, name);
         } else {
           store.touchDevice(id);
         }
@@ -218,9 +251,10 @@ function createHub(server) {
         // A socket renames only the device it identified as; any target in the
         // message is ignored. Ids are never shared, so nobody else can
         // identify as this device to rename it.
-        const name = cleanName(msg.name);
-        if (!ws.device || !name) return;
+        const wanted = cleanName(msg.name);
+        if (!ws.device || !wanted) return;
         const id = ws.device.id;
+        const name = uniqueName(id, wanted);
         store.setDeviceName(id, name);
         for (const c of wss.clients) {
           if (c.device && c.device.id === id) c.device.name = name;
@@ -242,7 +276,7 @@ function createHub(server) {
   if (heartbeat.unref) heartbeat.unref();
   wss.on('close', () => clearInterval(heartbeat));
 
-  return { wss, broadcast, broadcastRoster, sendToDevice, idOfHandle, rosterDetailed, kickDevice, kickUnjoined };
+  return { wss, broadcast, broadcastRoster, sendToDevice, idOfHandle, nameOfId, rosterDetailed, kickDevice, kickUnjoined };
 }
 
 module.exports = { createHub };

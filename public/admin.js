@@ -374,7 +374,14 @@ function privatePanel(d) {
     rows.push(box);
     const paint = (j) => {
       const link = `${state.data.server.shareBase}/#join=${j.secret}`;
-      const img = h('img', { class: 'join-qr', alt: 'Invite QR code', width: '168', height: '168', src: `/api/qr?text=${encodeURIComponent(link)}` });
+      // Fetched with the console's own headers (an <img> can't send the admin
+      // key), then shown from memory.
+      const img = h('img', { class: 'join-qr', alt: 'Invite QR code', width: '168', height: '168' });
+      const headers = state.key ? { 'x-admin-key': state.key } : {};
+      fetch(`/api/qr?text=${encodeURIComponent(link)}`, { headers, cache: 'no-store' })
+        .then((r) => (r.ok ? r.blob() : Promise.reject(new Error('qr'))))
+        .then((b) => { img.src = URL.createObjectURL(b); })
+        .catch(() => { img.alt = 'QR unavailable — use the code'; });
       box.replaceChildren(
         img,
         h('div', { class: 'join-side' },

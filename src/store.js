@@ -199,15 +199,13 @@ function setDeviceName(id, name) {
   persist();
 }
 
-/** Note that a device was here, so its name doesn't age out while in use. */
+/** Note that a device was here, so its name is the last to age out. */
 function touchDevice(id) {
   if (!has(state.deviceNames, id)) return;
   const t = now();
-  // Day resolution is plenty for a 90-day expiry and keeps saves rare.
-  if (t - (state.deviceSeen[id] || 0) > 24 * 60 * 60 * 1000) {
-    state.deviceSeen[id] = t;
-    persist();
-  }
+  const before = state.deviceSeen[id] || 0;
+  state.deviceSeen[id] = t; // in memory every time: eviction order stays true
+  if (t - before > 60 * 60 * 1000) persist(); // on disk at most hourly
 }
 
 function pruneDeviceNames() {
@@ -236,14 +234,17 @@ function listBlocked() {
 }
 function isBlocked(deviceId, ip) {
   const t = now();
+  // Blocks made before 1.0.2 (no `v`) keep their address forever, as they did
+  // then: those devices get a new id on upgrade, so the address may be the
+  // only thing still matching them.
+  const ipStillHeld = (b) => b.v !== 2 || t - (b.at || 0) < IP_BLOCK_TTL_MS;
   return state.blocked.some(
-    (b) => (deviceId && b.deviceId === deviceId) ||
-      (ip && b.ip && b.ip === ip && t - (b.at || 0) < IP_BLOCK_TTL_MS)
+    (b) => (deviceId && b.deviceId === deviceId) || (ip && b.ip && b.ip === ip && ipStillHeld(b))
   );
 }
 function addBlock(entry) {
   if (!state.blocked.some((b) => b.deviceId === entry.deviceId)) {
-    state.blocked.unshift(entry);
+    state.blocked.unshift({ ...entry, v: 2 });
     persist();
   }
   return entry;

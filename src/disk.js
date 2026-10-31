@@ -47,10 +47,14 @@ async function measure(dir) {
     return Number.isFinite(n) && n >= 0 ? n : null;
   }
 
-  // POSIX df: "Filesystem 1024-blocks Used Available Capacity Mounted on"
+  // POSIX df: "Filesystem 1024-blocks Used Available Capacity Mounted on".
+  // Filesystem and mount names can contain spaces ("map auto_home"), so find
+  // the Capacity column ("85%") and take the number just before it.
   const out = await run('df', ['-Pk', dir]);
   const line = out && out.trim().split('\n').pop();
-  const kb = line && Number(line.trim().split(/\s+/)[3]);
+  const cols = line ? line.trim().split(/\s+/) : [];
+  const cap = cols.findIndex((c, i) => i > 0 && /^\d+%$/.test(c));
+  const kb = cap > 0 ? Number(cols[cap - 1]) : NaN;
   return Number.isFinite(kb) && kb >= 0 ? kb * 1024 : null;
 }
 

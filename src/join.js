@@ -24,6 +24,10 @@ const store = require('./store');
 
 const COOKIE = 'meghxl_join';
 const MAX_SESSIONS = 500;
+// Wrong codes are rate-limited per address (routes/join.js). Many addresses
+// together could still work through a million codes, so after this many
+// wrong ones in total the code changes by itself. Joined devices stay joined.
+const MAX_FAILURES_PER_CODE = 30;
 const COOKIE_MAX_AGE = 365 * 24 * 60 * 60;
 
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
@@ -33,6 +37,7 @@ function fresh() {
     secret: crypto.randomBytes(16).toString('base64url'),
     code: String(crypto.randomInt(0, 1000000)).padStart(6, '0'),
     sessions: {}, // sha256(session token) -> issued at
+    failures: 0,
   };
 }
 
@@ -57,9 +62,22 @@ function equal(a, b) {
 /** True when `secret` (from an invite link) or `code` (typed) is right. */
 function check({ secret, code }) {
   const j = current();
-  if (typeof secret === 'string' && secret) return equal(secret, j.secret);
-  if (typeof code === 'string' && code) return equal(code.replace(/\s+/g, ''), j.code);
-  return false;
+  let ok = false;
+  if (typeof secret === 'string' && secret) ok = equal(secret, j.secret);
+  else if (typeof code === 'string' && code) ok = equal(code.replace(/\s+/g, ''), j.code);
+  if (!ok) noteFailure(j);
+  return ok;
+}
+
+function noteFailure(j) {
+  j.failures = (j.failures || 0) + 1;
+  if (j.failures >= MAX_FAILURES_PER_CODE) {
+    j.code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+    j.failures = 0;
+    j.autoRotatedAt = Date.now();
+    console.warn('[join] too many wrong codes — the join code was changed. The host console shows the new one.');
+  }
+  store.setJoin(j);
 }
 
 /** Issue a session and return its Set-Cookie value. */
@@ -104,7 +122,9 @@ function rotate() {
 // API (which checks admin on its own), and /d/ links (capabilities already).
 const OPEN_API = new Set(['/api/health', '/api/join', '/api/join/status', '/api/admin/whoami']);
 function isOpenPath(req) {
-  const p = req.path;
+  // Express matches routes case-insensitively: /API/files reaches the same
+  // handler as /api/files, so compare in lower case too.
+  const p = req.path.toLowerCase();
   if (p.startsWith('/d/') || p.startsWith('/api/admin/') || OPEN_API.has(p)) return true;
   return req.method === 'GET' && !p.startsWith('/api/');
 }

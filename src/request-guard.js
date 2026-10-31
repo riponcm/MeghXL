@@ -212,21 +212,26 @@ function isSameOrigin(req) {
 // under that, should a future change ever slip. (Inline styles stay allowed:
 // the pages use style attributes, and CSS can't run code.) Downloads replace
 // it with a stricter sandbox — see routes/files.js.
-const PAGE_CSP = [
-  "default-src 'self'",
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "connect-src 'self' ws: wss:",
-  "object-src 'none'",
-  "base-uri 'none'",
-  "form-action 'self'",
-  "frame-ancestors 'none'",
-].join('; ');
+// connect-src names this hub's own WebSocket origin: older Safari doesn't
+// count ws:// as 'self', and a bare ws: would allow any host at all.
+function pageCsp(host) {
+  const sockets = host && /^[a-z0-9.:[\]-]{1,260}$/i.test(host) ? ` ws://${host} wss://${host}` : '';
+  return [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    `connect-src 'self'${sockets}`,
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join('; ');
+}
 
 function requestGuard(req, res, next) {
   res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Content-Security-Policy', PAGE_CSP);
+  res.setHeader('Content-Security-Policy', pageCsp(req.headers.host));
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
 

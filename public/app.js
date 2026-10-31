@@ -43,7 +43,9 @@ function loadDevice() {
   // Before 1.0.2 ids were broadcast to every device, so any that existed then
   // may have been copied: start a fresh one, keeping the name.
   if (!d || !d.id || d.v !== 2) {
-    d = { id: makeId(), name: (d && d.name) || defaultDeviceName(), kind: (d && d.kind) || deviceKind(), v: 2 };
+    // The old id goes to the hub once (legacyId), so a block on it carries over.
+    d = { id: makeId(), name: (d && d.name) || defaultDeviceName(), kind: (d && d.kind) || deviceKind(), v: 2,
+      legacyId: (d && d.id) || undefined };
     try { localStorage.setItem(DEVICE_KEY, JSON.stringify(d)); } catch { /* ignore */ }
   }
   return d;
@@ -234,6 +236,11 @@ async function api(url, opts = {}) {
   return r;
 }
 
+// The host's messages and files carry a badge the hub sets — a device that
+// merely names itself "Host" doesn't get one.
+const fromLabel = (item, fallback) => [item.fromName || fallback,
+  item.fromHost ? h('span', { class: 'badge host', text: 'host' }) : null];
+
 const isMine = (item) => !!item && (state.isAdmin || (!!state.myHandle && item.ownerHandle === state.myHandle));
 
 let toastTimer = null;
@@ -339,7 +346,7 @@ function fileCard(file, { isPrivate, received }) {
 
   const meta = [h('span', { text: formatSize(file.size) })];
   if (file.createdAt) meta.push(h('span', { class: 'dotsep', text: fmtWhen(file.createdAt) }));
-  if (!isPrivate && !received && file.fromName) meta.push(h('span', { class: 'dotsep', text: 'by ' + file.fromName }));
+  if (!isPrivate && !received && file.fromName) meta.push(h('span', { class: 'dotsep' }, 'by ', ...fromLabel(file)));
   if (badges.length) meta.push(h('span', { class: 'badges' }, ...badges));
 
   return h('div', { class: 'file-card' },
@@ -505,7 +512,7 @@ function dmCard(m) {
   const canReply = m.fromId && state.devices.some((d) => d.id === m.fromId);
   return h('div', { class: 'note-card dm' },
     h('div', { class: 'dm-main' },
-      h('div', { class: 'dm-from' }, icon('message', 13), (m.fromName || 'Someone'),
+      h('div', { class: 'dm-from' }, icon('message', 13), ...fromLabel(m, 'Someone'),
         h('span', { class: 'dm-time', text: ' · ' + fmtWhen(m.ts) })),
       h('div', { class: 'note-text', text: m.text }),
     ),
@@ -795,7 +802,7 @@ function renderNotes() {
 function noteCard(n) {
   return h('div', { class: 'note-card dm' },
     h('div', { class: 'dm-main' },
-      h('div', { class: 'dm-from' }, icon('message', 13), (n.fromName || 'Someone'),
+      h('div', { class: 'dm-from' }, icon('message', 13), ...fromLabel(n, 'Someone'),
         h('span', { class: 'dm-time', text: ' · ' + fmtWhen(n.createdAt) })),
       h('div', { class: 'note-text', text: n.text }),
     ),
@@ -827,7 +834,7 @@ function connectWs() {
     state.everConnected = true;
     reconnectDelay = 1000;
     setOnline(true);
-    wsSend({ type: 'identify', deviceId: state.device.id, name: state.device.name, kind: state.device.kind });
+    wsSend({ type: 'identify', deviceId: state.device.id, name: state.device.name, kind: state.device.kind, legacyId: state.device.legacyId });
   };
   ws.onclose = (ev) => {
     setOnline(false);
@@ -865,6 +872,9 @@ function connectWs() {
       removePublicFile(payload.token);
     } else if (type === 'welcome') {
       state.myHandle = payload.handle;
+      if (state.device.legacyId) { delete state.device.legacyId; saveDevice(); }
+      // The hub may have adjusted the name (e.g. "Sam (2)" if "Sam" is taken).
+      if (payload.name && payload.name !== state.device.name) { state.device.name = payload.name; saveDevice(); updateSideMe(); }
       renderDevices(); renderDestSelectors(); renderPublic(); renderNotes();
     } else if (type === 'roster') {
       state.devices = payload.devices || [];

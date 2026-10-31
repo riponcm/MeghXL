@@ -17,8 +17,11 @@ should mirror the entry below it.
 - **A device could impersonate another one** by copying its id from the device
   list, then receive that device's direct files and private messages. Device ids
   are now never shared: other devices see a handle derived from it. Sender names
-  come from the hub's own records, so nobody can post as someone else — or as the
-  host. Existing browsers get a fresh id on first load (names are kept).
+  come from the hub's own records, not the request; two devices online can't use
+  the same name; names imitating the host (lookalike letters included) are
+  marked, and the host's own messages carry a badge only the hub can set.
+  Existing browsers get a fresh id on first load (names are kept, and a block on
+  the old id carries over).
 - **Anyone could delete any file or message.** Now only the device that shared it,
   or the host, can.
 - **Blocking only cut the live connection** — a blocked device could keep
@@ -48,7 +51,8 @@ should mirror the entry below it.
   with the host's invite QR or 6-digit code before they can see or send
   anything; “New code” removes everyone at once. Off by default.
 - **Refuse programs** (host console → Settings → Programs). Off by default:
-  programs are allowed but labelled.
+  programs are allowed but labelled. When on, archives MeghXL can't look inside
+  are refused as well.
 
 ### Fixed
 - In the desktop app, two downloads at once could swap paths in the "Saved to"
@@ -60,7 +64,8 @@ should mirror the entry below it.
   `fromName` / `fromId` in the body are ignored. Direct sends and messages are
   addressed by the handle shown in the device list.
 - Deleting a public file through the API needs the uploading device's
-  `x-meghxl-device` header, or admin.
+  `x-meghxl-device` header, or admin. Files and messages shared before 1.0.2
+  have no recorded owner, so only the host can delete those.
 
 ## [1.0.1] — 2026-09-28
 

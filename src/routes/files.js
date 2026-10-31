@@ -26,6 +26,7 @@ const TOKEN_RE = /^[A-Za-z0-9_-]{22}$/;
 const STORED_NAME_RE = /^[0-9a-f]{32}(\.[a-z0-9]{1,12})?$/;
 const ORPHAN_AGE_MS = 60 * 60 * 1000;
 const MAX_UPLOADS_PER_IP = 4;
+const MAX_UPLOADS_TOTAL = 32;
 
 /** Resolve a stored file's absolute path, refusing anything outside uploadDir. */
 function storedPath(storedName) {
@@ -56,6 +57,7 @@ function toPublicShape(f) {
     oneTime: f.oneTime,
     downloadCount: f.downloadCount,
     fromName: f.fromName || null,
+    fromHost: !!f.fromHost,
     // Lets the device that shared it (and only that one) recognise it as its
     // own and offer Delete. A handle, never the device id — see identity.js.
     ownerHandle: handleOf(f.ownerId) || null,
@@ -79,6 +81,17 @@ function unlinkPath(p) {
 module.exports = function createFilesRouter(hub) {
   const router = express.Router();
   const uploadsInFlight = createCounter(MAX_UPLOADS_PER_IP);
+  const uploadsTotal = createCounter(MAX_UPLOADS_TOTAL);
+  // Bytes promised to uploads still in progress. Free space doesn't show them
+  // yet, so without this several uploads at once could each take the whole
+  // allowance and overrun the disk reserve together.
+  let reservedBytes = 0;
+  // Uploads announce themselves to everyone; this keeps a script from
+  // flooding every screen (and the metadata file) with tiny files.
+  // The host is exempt: it may well share a folder's worth at once.
+  const uploadLimiter = rateLimit({ burst: 30, perMinute: 60, keyOf: remoteIp,
+    message: 'Too many uploads too quickly — wait a moment.' });
+  const uploadRate = (req, res, next) => (isAdmin(req) ? next() : uploadLimiter(req, res, next));
 
   // Anything that isn't shaped like one of our tokens is simply not found —
   // including "__proto__" and friends, which never reach the store.
@@ -154,7 +167,8 @@ module.exports = function createFilesRouter(hub) {
     try {
       const png = await qr.toBuffer(text);
       res.setHeader('Content-Type', 'image/png');
-      res.setHeader('Cache-Control', 'public, max-age=3600');
+      // An invite QR carries the join secret, so nothing is kept in a cache.
+      res.setHeader('Cache-Control', 'no-store');
       res.send(png);
     } catch {
       res.status(500).end();
@@ -169,19 +183,33 @@ module.exports = function createFilesRouter(hub) {
     if (!uploadsInFlight.tryAcquire(ip)) {
       return res.status(429).json({ error: 'Too many uploads at once from this device — wait for one to finish.' });
     }
-    res.on('close', () => uploadsInFlight.release(ip));
+    if (!uploadsTotal.tryAcquire('all')) {
+      uploadsInFlight.release(ip);
+      return res.status(503).json({ error: 'The hub is busy with other uploads — try again in a moment.' });
+    }
+    let reserved = 0;
+    res.on('close', () => {
+      uploadsInFlight.release(ip);
+      uploadsTotal.release('all');
+      reservedBytes -= reserved;
+    });
 
-    const allowance = await disk.uploadAllowance();
+    const allowance = Math.max(0, (await disk.uploadAllowance()) - reservedBytes);
     const spaceBound = allowance < config.maxUploadBytes;
     req.meghxlLimit = spaceBound ? 'disk' : 'cap';
     const declared = Number(req.headers['content-length']);
     if (allowance <= 0 || (spaceBound && Number.isFinite(declared) && declared > allowance + 1024 * 1024)) {
       return res.status(507).json({ error: "The host computer is running out of disk space, so it can't take this file right now." });
     }
+    // Hold what this upload says it will send (browsers always say); one that
+    // doesn't say gets the rest of the allowance and holds all of it.
+    reserved = Number.isFinite(declared) && declared > 0 ? Math.min(declared, allowance) : allowance;
+    if (Number.isFinite(reserved)) reservedBytes += reserved;
+    else reserved = 0; // no cap and free space unknown: nothing to hold
     uploadWithin(allowance).single('file')(req, res, next);
   }
 
-  router.post('/api/upload', admitUpload, (req, res) => {
+  router.post('/api/upload', uploadRate, admitUpload, (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     disk.invalidate();
     const admin = isAdmin(req);
@@ -210,7 +238,7 @@ module.exports = function createFilesRouter(hub) {
     // Taken from the hub's own record of the sending device, never from the
     // request, so nobody can send as someone else (or as the host).
     const fromName = admin ? 'Host'
-      : (deviceId && store.getDeviceName(deviceId)) || (to ? 'Someone' : null);
+      : (deviceId && (hub.nameOfId(deviceId) || store.getDeviceName(deviceId))) || (to ? 'Someone' : null);
     let visibility = 'private';
     if (to) {
       visibility = 'direct';
@@ -232,11 +260,14 @@ module.exports = function createFilesRouter(hub) {
 
     // Programs, scripts, installers — and anything whose content contradicts
     // its name. Labelled for everyone; refused if the host has said so.
-    const risk = classify(req.file.path, originalName, req.file.size);
-    if (risk && store.getSettings().blockPrograms === true && !admin) {
+    const verdict = classify(req.file.path, originalName, req.file.size);
+    if (verdict && store.getSettings().blockPrograms === true && !admin) {
       unlinkPath(req.file.path);
-      return res.status(415).json({ error: `This hub doesn't accept programs (${inSentence(risk.label)}). Ask the host if you need to share one.` });
+      const what = verdict.quiet ? "archives it can't look inside" : `programs (${inSentence(verdict.label)})`;
+      return res.status(415).json({ error: `This hub doesn't accept ${what}. Ask the host if you need to share one.` });
     }
+    // Quiet verdicts ("couldn't look inside") only matter to the setting above.
+    const risk = verdict && !verdict.quiet ? verdict : null;
 
     const meta = {
       token: token(),
@@ -255,6 +286,7 @@ module.exports = function createFilesRouter(hub) {
       ownerId: deviceId,
       toDeviceId,
       fromName,
+      fromHost: admin,
       risk,
     };
     store.addFile(meta);

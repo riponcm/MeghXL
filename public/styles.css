@@ -378,3 +378,4 @@ body {
 .join-qr { width: 168px; height: 168px; background: #fff; border-radius: 12px; padding: 8px; flex: none; }
 .join-side { flex: 1; min-width: 200px; }
 .join-code { font-size: 30px; font-weight: 700; letter-spacing: 4px; margin: 2px 0 6px; font-variant-numeric: tabular-nums; }
+.badge.host { color: var(--accent); border-color: rgba(109,139,255,.45); margin-left: 4px; text-transform: uppercase; letter-spacing: .04em; font-size: 10px; padding: 1px 6px; }

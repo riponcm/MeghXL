@@ -16,22 +16,24 @@ const toPublicNote = (n) => ({
   text: n.text,
   createdAt: n.createdAt,
   fromName: n.fromName || null,
+  fromHost: !!n.fromHost,
   ownerHandle: handleOf(n.ownerId) || null,
 });
 
-/**
- * Who is sending, from the hub's own records — never from the request body,
- * so nobody can post as someone else or as the host.
- */
-function sender(req) {
-  if (isAdmin(req)) return { id: deviceOf(req), name: 'Host' };
-  const id = deviceOf(req);
-  const name = id && store.getDeviceName(id);
-  return { id: name ? id : null, name: name || null };
-}
-
 module.exports = function createNotesRouter(hub) {
   const router = express.Router();
+
+  /**
+   * Who is sending: the device id from the request (which makes it the owner),
+   * and its name from the hub's own records — never from the request body.
+   * The host is flagged as such, so its messages can be told apart from a
+   * device that merely calls itself "Host".
+   */
+  function sender(req) {
+    const id = deviceOf(req);
+    if (isAdmin(req)) return { id, name: 'Host', host: true };
+    return { id, name: (id && (hub.nameOfId(id) || store.getDeviceName(id))) || null, host: false };
+  }
   // Plenty for people typing; a wall for a script flooding every screen.
   const writeLimit = rateLimit({ burst: 10, perMinute: 20, keyOf: remoteIp,
     message: 'You are sending messages too quickly — wait a moment.' });
@@ -55,6 +57,7 @@ module.exports = function createNotesRouter(hub) {
       // Deliberately not the IP: that would put every sender's address on
       // every other device's screen.
       fromName: from.name,
+      fromHost: from.host,
       ownerId: from.id,
     });
     const payload = toPublicNote(note);
@@ -73,6 +76,7 @@ module.exports = function createNotesRouter(hub) {
       id: noteId(),
       text,
       fromName: from.name || 'Someone',
+      fromHost: from.host,
       // Where a reply goes: the sender's handle, as the hub knows it.
       fromId: handleOf(from.id),
       ts: Date.now(),

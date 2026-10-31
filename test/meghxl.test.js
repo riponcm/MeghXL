@@ -39,6 +39,7 @@ const { app } = buildApp({
   broadcast() {},
   sendToDevice(handle, type, payload) { sent.push([handle, type, payload]); return online.has(handle) ? 1 : 0; },
   idOfHandle: (handle) => online.get(handle) || null,
+  nameOfId: () => null,
   rosterDetailed: () => [],
   kickDevice: () => 0,
   kickUnjoined: () => 0,
@@ -491,6 +492,39 @@ test('long uploads are not cut off at five minutes, only when the connection goe
 // 1.0.2 hardening
 // ---------------------------------------------------------------------------
 
+/**
+ * A minimal zip (stored, empty entries) — enough structure for the index to
+ * be read the way real tools read it: from the end-of-directory record back.
+ */
+function makeZip(names, { prefix = Buffer.alloc(0) } = {}) {
+  const locals = [];
+  const centrals = [];
+  let offset = 0;
+  for (const n of names) {
+    const name = Buffer.from(n, 'utf8');
+    const local = Buffer.alloc(30 + name.length);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(name.length, 26);
+    name.copy(local, 30);
+    const central = Buffer.alloc(46 + name.length);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt32LE(offset, 42);
+    name.copy(central, 46);
+    locals.push(local);
+    centrals.push(central);
+    offset += local.length;
+  }
+  const cd = Buffer.concat(centrals);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(names.length, 8);
+  end.writeUInt16LE(names.length, 10);
+  end.writeUInt32LE(cd.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([prefix, ...locals, cd, end]);
+}
+
 /** Start a real server + hub on a random port. */
 async function liveHub() {
   const server = tuneServer(http.createServer());
@@ -667,15 +701,9 @@ test('programs are labelled — by extension, by content, and inside zips', asyn
   assert.equal(disguised.body.risk.kind, 'mac');
   assert.match(disguised.body.risk.mismatch, /Named \.jpg/);
 
-  // A zip holding an app bundle: local header, then a central-directory entry.
-  const inner = 'Invoice.app/Contents/MacOS/Invoice';
-  const central = Buffer.alloc(46 + inner.length);
-  central.write('PK\x01\x02', 0, 'latin1');
-  central.writeUInt16LE(inner.length, 28);
-  central.write(inner, 46);
-  const zip = Buffer.concat([Buffer.from('PK\x03\x04', 'latin1'), Buffer.alloc(60), central]);
+  // A zip holding an app bundle.
   const zipped = await request(app).post('/api/upload').field('visibility', 'public')
-    .attach('file', zip, { filename: 'invoice.zip' });
+    .attach('file', makeZip(['Invoice.app/Contents/MacOS/Invoice']), { filename: 'invoice.zip' });
   assert.equal(zipped.body.risk.reason, 'archive');
   assert.equal(zipped.body.risk.inner, 'Invoice.app');
 
@@ -806,6 +834,163 @@ test('wrong admin keys lock that address out of key login for a while', async ()
   }
   const right = await lan(request(app).get('/api/admin/state')).set('x-admin-key', 'the-right-key-123');
   assert.equal(right.status, 403, 'even the right key, until the window passes');
+});
+
+// ---------------------------------------------------------------------------
+// Independent review of the 1.0.2 branch
+// ---------------------------------------------------------------------------
+
+test('private mode: changing the letter case of a path does not get around it', async () => {
+  store.setSettings({ privateMode: true });
+  try {
+    for (const p of ['/API/files', '/Api/notes', '/api/FILES', '/API/qr?text=x']) {
+      assert.equal((await lan(request(app).get(p))).status, 401, p);
+    }
+  } finally { store.setSettings({ privateMode: false }); }
+});
+
+test('zips: a program deep in a large index, or behind junk bytes, is still found', async () => {
+  const padded = Array.from({ length: 2500 }, (_, i) => `pad/file-${i}.txt`).concat('evil.exe');
+  const a = await request(app).post('/api/upload').field('visibility', 'public')
+    .attach('file', makeZip(padded), { filename: 'photos.zip' });
+  assert.equal(a.body.risk && a.body.risk.inner, 'evil.exe');
+
+  const b = await request(app).post('/api/upload').field('visibility', 'public')
+    .attach('file', makeZip(['run.sh'], { prefix: Buffer.alloc(5000, 7) }), { filename: 'data.zip' });
+  assert.equal(b.body.risk && b.body.risk.inner, 'run.sh', 'scripts count, and a prefix does not hide the index');
+});
+
+test('disk images and web pages are labelled; archives it cannot read are refused only in strict mode', async () => {
+  const iso = await request(app).post('/api/upload').field('visibility', 'public')
+    .attach('file', Buffer.alloc(64), { filename: 'Setup.iso' });
+  assert.equal(iso.body.risk.kind, 'diskimage');
+
+  const nested = makeZip(['inner.zip']);
+  const shown = await request(app).post('/api/upload').field('visibility', 'public')
+    .attach('file', nested, { filename: 'bundle.zip' });
+  assert.equal(shown.body.risk, null, 'no alarm for a zip of zips by default');
+
+  store.setSettings({ blockPrograms: true });
+  try {
+    const refused = await lan(request(app).post('/api/upload')).field('visibility', 'public')
+      .attach('file', nested, { filename: 'bundle.zip' });
+    assert.equal(refused.status, 415);
+    const rar = await lan(request(app).post('/api/upload')).field('visibility', 'public')
+      .attach('file', Buffer.from('Rar!\x1a\x07\x00'), { filename: 'stuff.rar' });
+    assert.equal(rar.status, 415);
+  } finally { store.setSettings({ blockPrograms: false }); }
+});
+
+test('uploads at the same time cannot overrun the disk reserve together', async () => {
+  const free = await disk.freeBytes();
+  if (free == null) return; // nothing to measure against on this machine
+  const saved = config.minFreeBytes;
+  config.minFreeBytes = free - 3 * 1024 * 1024; // leaves room for ~3 MB
+  disk.invalidate();
+  try {
+    const file = Buffer.alloc(2.5 * 1024 * 1024, 1);
+    const send = (ip) => lan(request(app).post('/api/upload'), ip).field('visibility', 'private')
+      .attach('file', file, { filename: 'big.bin' });
+    const results = await Promise.all([send('10.5.5.1'), send('10.5.5.2')]);
+    const codes = results.map((r) => r.status).sort();
+    assert.deepEqual(codes, [200, 507]);
+  } finally { config.minFreeBytes = saved; disk.invalidate(); }
+});
+
+test('uploads are rate-limited per address (the host is not)', async () => {
+  const ip = '10.44.44.44';
+  let last;
+  for (let i = 0; i < 32; i++) {
+    last = await lan(request(app).post('/api/upload'), ip).field('visibility', 'private')
+      .attach('file', Buffer.from('x'), { filename: `f${i}.txt` });
+  }
+  assert.equal(last.status, 429);
+});
+
+test('a long name full of emoji stays downloadable', async () => {
+  const up = await request(app).post('/api/upload').field('visibility', 'public')
+    .attach('file', Buffer.from('x'), { filename: 'a'.repeat(175) + '😀'.repeat(10) + '.txt' });
+  assert.ok(up.body.originalName.endsWith('.txt'));
+  assert.equal((await request(app).get(`/d/${up.body.token}`)).status, 200);
+});
+
+test('names that only look like "Host" are marked', () => {
+  const { cleanName } = require('../src/text');
+  for (const n of ['Ноst', 'Ｈｏｓｔ', 'H0st', 'Adm1n']) {
+    assert.match(cleanName(n), /\(device\)$/, n);
+  }
+});
+
+test('owning a message does not depend on the hub remembering the name', async () => {
+  const id = 'never-named-device-0001';
+  const note = await lan(request(app).post('/api/notes')).set('x-meghxl-device', id).send({ text: 'mine' });
+  assert.equal(note.body.ownerHandle, handleOf(id));
+  assert.equal((await lan(request(app).delete(`/api/notes/${note.body.id}`)).set('x-meghxl-device', id)).status, 200);
+});
+
+test('the host is flagged by the hub, not by its name', async () => {
+  const fake = device('fake-host-device-00001', 'Host');
+  const fromDevice = await lan(request(app).post('/api/notes')).set('x-meghxl-device', fake.id).send({ text: 'hi' });
+  assert.equal(fromDevice.body.fromHost, false);
+  const fromHost = await request(app).post('/api/notes').send({ text: 'hello all' });
+  assert.equal(fromHost.body.fromHost, true);
+  assert.equal(fromHost.body.fromName, 'Host');
+});
+
+test('two devices cannot use the same name, even with lookalike letters', async () => {
+  const live = await liveHub();
+  try {
+    await live.connect('sam-device-a-0000000001', 'Sam');
+    const b = await live.connect('sam-device-b-0000000001', 'Ѕam'); // Cyrillic S
+    const welcome = b.inbox.find((m) => m.type === 'welcome');
+    assert.equal(welcome.payload.name, 'Ѕam (2)');
+  } finally { await live.close(); }
+});
+
+test('a block made before the upgrade follows the device to its new id', async () => {
+  store.addBlock({ deviceId: 'old-style-uuid-0000000001', ip: null, name: 'old', at: Date.now() });
+  const live = await liveHub();
+  try {
+    const ws = await new Promise((resolve, reject) => {
+      const s = new WebSocket(`ws://127.0.0.1:${live.port}/ws`, { headers: { 'X-Forwarded-For': '10.3.3.3' } });
+      s.inbox = [];
+      s.on('message', (d) => s.inbox.push(JSON.parse(d)));
+      s.on('open', () => {
+        s.send(JSON.stringify({ type: 'identify', deviceId: 'brand-new-device-000001', name: 'x', legacyId: 'old-style-uuid-0000000001' }));
+        setTimeout(() => resolve(s), 120);
+      });
+      s.on('error', reject);
+    });
+    assert.ok(ws.inbox.some((m) => m.type === 'blocked'));
+    assert.ok(store.isBlocked('brand-new-device-000001', null), 'the new id is blocked too');
+    ws.terminate();
+  } finally { await live.close(); }
+});
+
+test('blocks from before 1.0.2 keep their address; new ones lapse after a day', () => {
+  const day = 25 * 60 * 60 * 1000;
+  store.listBlocked().push({ deviceId: 'pre-102-0000000000001', ip: '10.9.9.1', at: Date.now() - day });
+  assert.ok(store.isBlocked(null, '10.9.9.1'));
+  store.addBlock({ deviceId: 'post-102-000000000001', ip: '10.9.9.2', at: Date.now() - day });
+  assert.ok(!store.isBlocked(null, '10.9.9.2'));
+});
+
+test('too many wrong join codes overall change the code by itself', async () => {
+  store.setSettings({ privateMode: true });
+  try {
+    const join = require('../src/join');
+    const before = join.current().code;
+    for (let i = 0; i < 30; i++) {
+      await lan(request(app).post('/api/join'), `10.20.${i}.1`).send({ code: before === '999999' ? '999998' : '999999' });
+    }
+    assert.notEqual(join.current().code, before);
+  } finally { store.setSettings({ privateMode: false }); }
+});
+
+test('the page policy allows only this hub\'s own WebSocket', async () => {
+  const csp = (await request(app).get('/').set('Host', 'meghxl.local:3000')).headers['content-security-policy'];
+  assert.match(csp, /connect-src 'self' ws:\/\/meghxl\.local:3000 wss:\/\/meghxl\.local:3000;/);
+  assert.doesNotMatch(csp, /ws: |wss:;/);
 });
 
 test.after(() => {
