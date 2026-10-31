@@ -393,3 +393,4 @@ body {
 .alert-panel h2 { color: var(--danger); display: flex; align-items: center; gap: 6px; }
 .offline-banner { margin: 0 0 16px; padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(251,191,36,.45); background: rgba(251,191,36,.08); color: var(--text); font-size: 14px; }
 .offline-banner a { color: var(--accent); }
+.limit-row > .btn { flex: none; white-space: nowrap; }

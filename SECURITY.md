@@ -115,6 +115,8 @@ MeghXL assumes the **local network is trusted**. That is the security boundary.
 | **Blocked devices coming back** | A block applies to every request (pages, uploads, messages, downloads), not only the live connection, by device and by address. Address blocks made in 1.0.2 or later lapse after a day, since DHCP reassigns addresses. A device block lasts, but only binds a client that presents its id — a script can leave it out, so for the first day the address block is what stops it. Blocks from earlier versions follow a device to the new id it gets on upgrade. | `server.js` (`blockGuard`), `src/store.js` |
 | **Flooding and exhaustion** | WebSocket messages are capped at 64 KB (a 100 MB frame used to crash the server) and rate-limited per connection; connections are capped per address and in total. Uploads, messages, QR codes, join attempts and wrong admin keys are rate-limited per address, and after 30 wrong join codes in total the code changes by itself. At most 4 uploads at once per address (32 overall), and uploads stop before the disk would drop below `MIN_FREE_MB` (5 GB by default) — counting uploads still in progress. JSON bodies are capped at 16 KB; how many new devices an address can register is limited. | `src/ws-hub.js`, `src/limits.js`, `src/disk.js`, `src/join.js`, `src/admin-auth.js` |
 | **Strangers on a shared network** | Optional **private mode**: devices must join with the host's invite QR or a 6-digit code before they can see or send anything. Download links keep working. Optionally the host also **approves each new device** (it receives nothing until let in) and **each name change**. An activity log records joins, approvals, blocks and refused uploads. | `src/join.js`, `src/ws-hub.js` |
+| **Someone else posing as the host** (including after knocking the real one offline) | There is exactly one host, chosen on purpose; nothing ever takes over automatically. The host holds an Ed25519 key. Desktop apps on other computers pair with it once — the person compares its fingerprint with the host console — then make it sign a fresh challenge before trusting it, and check again every minute. A machine without the key is refused with a warning. The host also watches the network and alerts when another machine announces itself as MeghXL or uses its name. | `src/host-identity.js`, `desktop/src-tauri/src/host_link.rs`, `src/mdns.js` |
+| **Losing or replacing the host** | A recovery key (shown in the host console, to be kept safe) restores the same host identity on a replacement computer; an encrypted settings backup brings its settings back. A planned move uses a one-time 80-bit transfer code that never crosses the network: the new computer proves it knows the code, receives the key sealed with it, checks it is the key the old host had been proving, and the old host then retires. | `src/routes/host.js` |
 | **Filling the host's storage** | Besides the disk reserve, the host can set a largest-file size and a total storage budget for other devices. | `src/disk.js` |
 | **Script injection, as a backstop** | Pages carry a Content-Security-Policy allowing only MeghXL's own scripts and connections to the hub. | `src/request-guard.js` |
 
@@ -143,6 +145,13 @@ Honesty matters more than reassurance:
   several people reach the hub from one address (a shared router, VPN or
   container network) and it doesn't switch itself off (it does above 4
   devices), turn it off in Settings → Approvals.
+- **Phones and browsers can't check the host's key.** Over plain HTTP a browser
+  has no way to tell the real host from another machine answering at the same
+  name. Desktop apps check; for phones, scan the QR code on the host's screen
+  (it carries the host's address), and watch for the host's "posing as MeghXL"
+  alert.
+- **The recovery key is the host.** Whoever has it can become your host. Keep it
+  like a password: in a password manager or printed and put away.
 - **Device identity lives in the browser.** A device is whoever holds its id,
   kept in that browser's storage. Anyone with access to that browser — or able to
   intercept plain-HTTP traffic — can act as that device. Display names are chosen

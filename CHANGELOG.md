@@ -50,6 +50,19 @@ should mirror the entry below it.
 - **Private mode** (host console → Settings → Who can join). Devices must join
   with the host's invite QR or 6-digit code before they can see or send
   anything; “New code” removes everyone at once. Off by default.
+- **One host, chosen on purpose.** The desktop app asks on first launch whether
+  this computer is the host or joins it; existing installs stay hosts. Nothing
+  ever becomes the host automatically — when the host is offline, everyone
+  waits for it ("host offline" banner).
+- **Host identity.** The host has a signing key. Desktop apps pair with it once
+  (comparing its fingerprint with the host console) and refuse any other
+  computer claiming to be MeghXL, with a warning. The host alerts when another
+  machine on the network announces itself as MeghXL or uses its name.
+- **Recovery key and settings backup** (host console → Settings → Host
+  computer): restore the same host on a replacement computer.
+- **Move the host** to another computer with a one-time transfer code, with or
+  without its files; shared links keep working, and the old computer stands
+  down. "Forget this host" (desktop menu) re-pairs a computer by hand.
 - **Upload limits** (host console → Settings → Upload limits): a largest-file
   size (no limit, 100 MB, 1 GB, 5 GB, 10 GB, 50 GB or custom) and a total storage
   budget. They apply to other devices — the host computer can share anything —

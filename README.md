@@ -91,6 +91,10 @@ one machine has to be on, and in exchange nobody else installs anything.
   budget for other devices; phones see the limit before they start.
 - **One name per computer** — Safari, Chrome and Firefox on the same Mac show up
   as one device, and a file sent to it reaches all of them.
+- **One host, and it proves it** — the desktop app pairs with the host once and
+  refuses any other computer that claims to be MeghXL. A recovery key restores
+  the host on new hardware, and the host can be moved to another computer on
+  purpose — never taken over.
 - **Program warnings** — apps, installers and scripts are labelled, a program
   disguised as a photo or PDF is called out, and saving one asks first. The
   desktop app marks received files so macOS and Windows check them before they

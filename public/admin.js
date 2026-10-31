@@ -505,13 +505,19 @@ function hostPanel() {
       info.move ? h('div', { class: 'recovery-box' },
         h('div', { class: 'adm-meta', text: `Transfer code — expires ${new Date(info.move.expiresAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` }),
         h('code', { class: 'transfer-code', text: info.move.code }),
-        h('div', { class: 'adm-meta', text: `This computer's address: ${state.data.server.shareBase}. ${info.files} file${info.files === 1 ? '' : 's'} (${fmtSize(info.bytes)}) can be copied across.` })) : null,
+        h('div', { class: 'adm-meta', text: `This computer's address: ${hostAddress()}. ${info.files} file${info.files === 1 ? '' : 's'} (${fmtSize(info.bytes)}) can be copied across.` })) : null,
     ];
     box.replaceChildren(...rows.filter(Boolean));
   };
   if (hostInfo) paint(hostInfo);
   api('/api/admin/host').then((info) => { hostInfo = info; paint(info); }).catch((e) => toast(e.message, 'danger'));
   return panel('Host computer', null, [box]);
+}
+// Like the sidebar: the IP only when asked for, the friendly name otherwise.
+function hostAddress() {
+  const s = state.data.server;
+  if (showIp) return `${s.lanIp}:${s.port}`;
+  return s.mdnsName ? `${s.mdnsName}:${s.port} (Show IP in the sidebar for the number)` : 'shown by Show IP in the sidebar';
 }
 function showRecovery() {
   if (recoveryShown) { recoveryShown = null; return renderSection(); }

@@ -2286,6 +2286,8 @@ dependencies = [
 name = "meghxl-desktop"
 version = "1.0.1"
 dependencies = [
+ "base64 0.22.1",
+ "ring",
  "serde_json",
  "tauri",
  "tauri-build",

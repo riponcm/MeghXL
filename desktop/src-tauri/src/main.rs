@@ -7,6 +7,8 @@
 // duplicates it.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod host_link;
+
 use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
@@ -30,6 +32,8 @@ use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_updater::UpdaterExt;
+
+use host_link::{Check, Paired, Role};
 
 /// Preferred port. MeghXL's links, QR codes and bookmarks all assume it, so we
 /// only move off it if something else has already taken it.
@@ -73,6 +77,25 @@ impl Downloads {
 
 /// The port the server ended up on, so menu handlers can build URLs.
 struct AppPort(u16);
+
+/// Where the dashboard lives: this computer's own server when it is the
+/// host, the paired host otherwise. Changes if the host's address does.
+struct Base(Mutex<String>);
+
+/// Whether this computer is the host (a host shows the console; a client
+/// can forget its host).
+struct IsHost(bool);
+
+fn base(app: &tauri::AppHandle) -> String {
+    app.try_state::<Base>()
+        .map(|b| b.0.lock().unwrap().clone())
+        .unwrap_or_else(|| format!("http://127.0.0.1:{DEFAULT_PORT}"))
+}
+
+/// The app's own bundled pages (setup, waiting, warnings).
+fn local_page() -> &'static str {
+    if cfg!(windows) { "http://tauri.localhost/index.html" } else { "tauri://localhost/index.html" }
+}
 
 // ---------------------------------------------------------------------------
 // Downloads
@@ -182,9 +205,10 @@ fn mark_downloaded(_path: &Path, _url: &str) {}
 
 /// The dashboard window. Files are always written to disk — this window never
 /// renders a transferred file, whatever its type.
-fn create_main_window(app: &tauri::AppHandle, port: u16) -> tauri::Result<WebviewWindow> {
+fn create_main_window(app: &tauri::AppHandle) -> tauri::Result<WebviewWindow> {
     let dl = app.clone();
     let nav = app.clone();
+    let origin = app.clone();
     WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
         .title("MeghXL")
         .inner_size(1180.0, 800.0)
@@ -235,9 +259,14 @@ fn create_main_window(app: &tauri::AppHandle, port: u16) -> tauri::Result<Webvie
         })
         // Keep this window on the dashboard; send anything else to the browser.
         .on_navigation(move |url| {
+            // The app's own pages, and the dashboard's origin — nothing else.
+            let home: Option<tauri::Url> = base(&origin).parse().ok();
+            let same_origin = home.is_some_and(|h| {
+                h.scheme() == url.scheme() && h.host_str() == url.host_str() && h.port_or_known_default() == url.port_or_known_default()
+            });
             let allowed = matches!(url.scheme(), "tauri" | "asset")
-                || (matches!(url.host_str(), Some("127.0.0.1") | Some("localhost"))
-                    && url.port() == Some(port));
+                || url.host_str() == Some("tauri.localhost")
+                || same_origin;
             if !allowed {
                 let _ = nav.opener().open_url(url.to_string(), None::<&str>);
             }
@@ -373,6 +402,11 @@ fn show_dashboard_when_ready(app: tauri::AppHandle, port: u16) {
         let deadline = Instant::now() + STARTUP_TIMEOUT;
         while Instant::now() < deadline {
             if is_meghxl(port) {
+                // After a planned move this computer's server is retired: become
+                // a client of the new host — but only if it proves our old key.
+                if let Some(moved_to) = host_link::local_retired(port) {
+                    return follow_moved_host(&app, port, moved_to);
+                }
                 let url = format!("http://127.0.0.1:{port}/");
                 if let Some(win) = app.get_webview_window("main") {
                     if let Ok(parsed) = url.parse() {
@@ -390,6 +424,197 @@ fn show_dashboard_when_ready(app: tauri::AppHandle, port: u16) {
             );
         }
     });
+}
+
+/// Run one of the bundled page's functions (`__meghxlWaiting(...)` etc.),
+/// loading the bundled page first if the window is showing something else.
+fn show_local(app: &tauri::AppHandle, script: String) {
+    let Some(win) = app.get_webview_window("main") else { return };
+    let on_local = win
+        .url()
+        .map(|u| u.scheme() == "tauri" || u.host_str() == Some("tauri.localhost"))
+        .unwrap_or(false);
+    if !on_local {
+        if let Ok(url) = local_page().parse() {
+            let _ = win.navigate(url);
+        }
+        std::thread::sleep(Duration::from_millis(900));
+    }
+    let _ = win.eval(script);
+}
+
+fn js_str(s: &str) -> String {
+    serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
+}
+
+/// This computer handed the host role on. Pair with the new host, provided
+/// it proves it holds the key this computer used to have.
+fn follow_moved_host(app: &tauri::AppHandle, port: u16, moved_to: Option<String>) {
+    let key = host_link::local_public_key(port);
+    if let (Some(to), Some(key)) = (moved_to.clone(), key) {
+        if let Ok(to) = host_link::normalize(&to) {
+            if let Check::Verified(id) = host_link::verify(&to, Some(&key)) {
+                let paired = Paired { host: to, public_key: key, fingerprint: id.fingerprint, name: id.name };
+                if host_link::save_role(app, &Role::Client(paired)).is_ok() {
+                    app.restart();
+                }
+            }
+        }
+    }
+    let to = moved_to.unwrap_or_default();
+    show_local(app, format!("window.__meghxlMoved && window.__meghxlMoved({})", js_str(&to)));
+}
+
+// ---------------------------------------------------------------------------
+// Client mode: this computer uses the host's dashboard
+// ---------------------------------------------------------------------------
+
+/// Find the paired host, check it is really the host, and keep checking.
+/// Shows "waiting" while it's away and a warning if anything else answers in
+/// its place. Never starts a server here, whatever happens.
+fn watch_host(app: tauri::AppHandle, mut paired: Paired) {
+    std::thread::spawn(move || {
+        let mut showing_dashboard = false;
+        loop {
+            let (check, from) = host_link::find_paired(&paired);
+            let pause = match check {
+                Check::Verified(_) => {
+                    if from != paired.host {
+                        // The host's address changed; it proved the key, so follow it.
+                        paired.host = from.clone();
+                        let _ = host_link::save_role(&app, &Role::Client(paired.clone()));
+                        if let Some(b) = app.try_state::<Base>() {
+                            *b.0.lock().unwrap() = from.clone();
+                        }
+                        showing_dashboard = false;
+                    }
+                    if !showing_dashboard {
+                        if let (Some(win), Ok(url)) = (app.get_webview_window("main"), format!("{from}/").parse()) {
+                            let _ = win.navigate(url);
+                        }
+                        showing_dashboard = true;
+                    }
+                    60
+                }
+                Check::WrongKey(fingerprint) => {
+                    showing_dashboard = false;
+                    show_local(&app, format!(
+                        "window.__meghxlImpostor && window.__meghxlImpostor({}, {}, {})",
+                        js_str(&from), js_str(&paired.fingerprint), js_str(&fingerprint)
+                    ));
+                    15
+                }
+                Check::Moved(to) => {
+                    showing_dashboard = false;
+                    show_local(&app, format!("window.__meghxlMoved && window.__meghxlMoved({})", js_str(&to.unwrap_or_default())));
+                    30
+                }
+                Check::Unreachable(_) => {
+                    // Once the dashboard is up it shows its own "host offline"
+                    // banner and reconnects by itself.
+                    if !showing_dashboard {
+                        let name = paired.name.clone().unwrap_or_else(|| paired.host.clone());
+                        show_local(&app, format!("window.__meghxlWaiting && window.__meghxlWaiting({})", js_str(&name)));
+                    }
+                    if showing_dashboard { 30 } else { 5 }
+                }
+            };
+            std::thread::sleep(Duration::from_secs(pause));
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// First launch: choose the host, on purpose
+// ---------------------------------------------------------------------------
+
+/// Commands answer only the app's own bundled page — never a dashboard
+/// loaded from the network, even if that page somehow reached the bridge.
+fn from_local_page(webview: &tauri::Webview) -> Result<(), String> {
+    let ok = webview
+        .url()
+        .map(|u| u.scheme() == "tauri" || u.host_str() == Some("tauri.localhost"))
+        .unwrap_or(false);
+    if ok { Ok(()) } else { Err("not allowed".into()) }
+}
+
+#[tauri::command]
+fn choose_host(app: tauri::AppHandle, webview: tauri::Webview) -> Result<(), String> {
+    from_local_page(&webview)?;
+    host_link::save_role(&app, &Role::Host)?;
+    app.restart();
+}
+
+/// Look for a host at `address` and make it prove it holds a key. Returns
+/// what to show the person, who compares the fingerprint with the host
+/// console before pairing.
+#[tauri::command]
+fn find_host(webview: tauri::Webview, address: String) -> Result<serde_json::Value, String> {
+    from_local_page(&webview)?;
+    let base = host_link::normalize(&address)?;
+    match host_link::verify(&base, None) {
+        Check::Verified(id) => Ok(serde_json::json!({
+            "address": base, "publicKey": id.public_key, "fingerprint": id.fingerprint, "name": id.name,
+        })),
+        Check::WrongKey(_) => Err("Something answered there, but it couldn't prove it is a MeghXL host.".into()),
+        Check::Moved(to) => Err(format!("That computer is no longer the host{}.", to.map(|t| format!(" — it moved to {t}")).unwrap_or_default())),
+        Check::Unreachable(e) => Err(e),
+    }
+}
+
+#[tauri::command]
+fn pair_host(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    address: String,
+    public_key: String,
+) -> Result<(), String> {
+    from_local_page(&webview)?;
+    let base = host_link::normalize(&address)?;
+    // Check again with the key the person just accepted.
+    let Check::Verified(id) = host_link::verify(&base, Some(&public_key)) else {
+        return Err("The host didn't answer the same way twice. Try again.".into());
+    };
+    host_link::save_role(&app, &Role::Client(Paired {
+        host: base, public_key, fingerprint: id.fingerprint, name: id.name,
+    }))?;
+    app.restart();
+}
+
+/// Ask, then forget the paired host and start over. Only from this computer's
+/// own menu — the network can never unpair it.
+fn forget_host(app: &tauri::AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let yes = app
+            .dialog()
+            .message("Forget this host? MeghXL will ask again which computer is the host. Do this only if the host was replaced and its recovery key is lost.")
+            .title("Forget host")
+            .buttons(tauri_plugin_dialog::MessageDialogButtons::OkCancelCustom("Forget".into(), "Cancel".into()))
+            .blocking_show();
+        if yes {
+            host_link::forget(&app);
+            app.restart();
+        }
+    });
+}
+
+/// Which role to start in. An existing install that already holds data — or a
+/// MeghXL server already running here — has been the host all along.
+fn initial_role(app: &tauri::AppHandle) -> Option<Role> {
+    if let Some(role) = host_link::load_role(app) {
+        return Some(role);
+    }
+    let has_data = app
+        .path()
+        .app_data_dir()
+        .map(|d| d.join("metadata.json").is_file())
+        .unwrap_or(false);
+    if has_data || is_meghxl(DEFAULT_PORT) {
+        let _ = host_link::save_role(app, &Role::Host);
+        return Some(Role::Host);
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -473,11 +698,10 @@ fn check_for_updates(app: &tauri::AppHandle) {
 
 const REPO: &str = "https://github.com/riponcm/MeghXL";
 
-/// Bring the window forward on `path` of the local dashboard.
+/// Bring the window forward on `path` of the dashboard.
 fn show_at(app: &tauri::AppHandle, path: &str) {
-    let port = app.try_state::<AppPort>().map(|p| p.0).unwrap_or(DEFAULT_PORT);
     if let Some(win) = app.get_webview_window("main") {
-        if let Ok(url) = format!("http://127.0.0.1:{port}{path}").parse() {
+        if let Ok(url) = format!("{}{path}", base(app)).parse() {
             let _ = win.navigate(url);
         }
         let _ = win.show();
@@ -502,10 +726,16 @@ fn menu_action(app: &tauri::AppHandle, id: &str) {
                 let _ = win.eval("location.reload()");
             }
         }
+        "forget" => forget_host(app),
         "copy" => {
-            let port = app.try_state::<AppPort>().map(|p| p.0).unwrap_or(DEFAULT_PORT);
-            let host = lan_ip().unwrap_or_else(|| "127.0.0.1".into());
-            let _ = app.clipboard().write_text(format!("http://{host}:{port}/"));
+            let link = if app.try_state::<IsHost>().map_or(true, |h| h.0) {
+                let port = app.try_state::<AppPort>().map(|p| p.0).unwrap_or(DEFAULT_PORT);
+                let host = lan_ip().unwrap_or_else(|| "127.0.0.1".into());
+                format!("http://{host}:{port}/")
+            } else {
+                format!("{}/", base(app))
+            };
+            let _ = app.clipboard().write_text(link);
             let _ = app
                 .notification()
                 .builder()
@@ -561,8 +791,14 @@ fn about_metadata() -> AboutMetadata<'static> {
 
 /// The macOS menu bar. Without one, the app shows Tao's bare default; more
 /// importantly, the Edit menu is what makes Cmd-C/V work inside the webview.
-fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
+fn build_app_menu(app: &tauri::AppHandle, is_host: bool) -> tauri::Result<()> {
     let sep = || PredefinedMenuItem::separator(app);
+    // The host has a console; a client has a host it can forget.
+    let role_item = if is_host {
+        MenuItemBuilder::with_id("console", "Host Console").build(app)?
+    } else {
+        MenuItemBuilder::with_id("forget", "Forget This Host…").build(app)?
+    };
 
     let app_menu = Submenu::with_items(app, "MeghXL", true, &[
         &PredefinedMenuItem::about(app, Some("About MeghXL"), Some(about_metadata()))?,
@@ -606,7 +842,7 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         &MenuItemBuilder::with_id("nav-devices", "Devices").build(app)?,
         &MenuItemBuilder::with_id("about", "About").build(app)?,
         &sep()?,
-        &MenuItemBuilder::with_id("console", "Host Console").build(app)?,
+        &role_item,
         &sep()?,
         &MenuItemBuilder::with_id("reload", "Reload").build(app)?,
         &PredefinedMenuItem::fullscreen(app, None)?,
@@ -638,12 +874,17 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
 // Tray
 // ---------------------------------------------------------------------------
 
-fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
+fn build_tray(app: &tauri::AppHandle, is_host: bool) -> tauri::Result<()> {
     let sep = || PredefinedMenuItem::separator(app);
+    let role_item = if is_host {
+        MenuItemBuilder::with_id("console", "Host console").build(app)?
+    } else {
+        MenuItemBuilder::with_id("forget", "Forget this host…").build(app)?
+    };
     let menu = MenuBuilder::new(app)
         .items(&[
             &MenuItemBuilder::with_id("open", "Open MeghXL").build(app)?,
-            &MenuItemBuilder::with_id("console", "Host console").build(app)?,
+            &role_item,
             &MenuItemBuilder::with_id("copy", "Copy network link").build(app)?,
             &sep()?,
             &MenuItemBuilder::with_id("downloads", "Open downloads folder").build(app)?,
@@ -687,32 +928,65 @@ fn main() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        .invoke_handler(tauri::generate_handler![choose_host, find_host, pair_host])
         .setup(|app| {
             let handle = app.handle().clone();
-            match start_server(&handle) {
-                Ok((port, child)) => {
-                    app.manage(Server {
-                        child: Mutex::new(child),
-                    });
-                    app.manage(Downloads::default());
-                    app.manage(AppPort(port));
-                    create_main_window(&handle, port)?;
-                    build_app_menu(&handle)?;
-                    build_tray(&handle)?;
-                    show_dashboard_when_ready(handle, port);
+            app.manage(Downloads::default());
+            match initial_role(&handle) {
+                // A client never starts a server: it shows the host's dashboard,
+                // once the host proves who it is.
+                Some(Role::Client(paired)) => {
+                    app.manage(Server { child: Mutex::new(None) });
+                    app.manage(Base(Mutex::new(paired.host.clone())));
+                    app.manage(IsHost(false));
+                    create_main_window(&handle)?;
+                    build_app_menu(&handle, false)?;
+                    build_tray(&handle, false)?;
+                    watch_host(handle, paired);
                 }
-                Err(message) => {
-                    // Keep the window up so the user sees why, instead of a
-                    // silent no-op launch.
-                    let escaped = message.replace('\\', "\\\\").replace('\'', "\\'");
-                    let win = create_main_window(&handle, DEFAULT_PORT)?;
+                // First launch: the person chooses. Nothing is served until then.
+                None => {
+                    app.manage(Server { child: Mutex::new(None) });
+                    app.manage(Base(Mutex::new(String::new())));
+                    app.manage(IsHost(false));
+                    create_main_window(&handle)?;
+                    build_app_menu(&handle, false)?;
                     std::thread::spawn(move || {
                         std::thread::sleep(Duration::from_millis(900));
-                        let _ = win.eval(format!(
-                            "window.__meghxlFailed && window.__meghxlFailed('{escaped}')"
-                        ));
+                        if let Some(win) = handle.get_webview_window("main") {
+                            let _ = win.eval("window.__meghxlSetup && window.__meghxlSetup()");
+                        }
                     });
                 }
+                Some(Role::Host) => match start_server(&handle) {
+                    Ok((port, child)) => {
+                        app.manage(Server {
+                            child: Mutex::new(child),
+                        });
+                        app.manage(AppPort(port));
+                        app.manage(Base(Mutex::new(format!("http://127.0.0.1:{port}"))));
+                        app.manage(IsHost(true));
+                        create_main_window(&handle)?;
+                        build_app_menu(&handle, true)?;
+                        build_tray(&handle, true)?;
+                        show_dashboard_when_ready(handle, port);
+                    }
+                    Err(message) => {
+                        // Keep the window up so the user sees why, instead of a
+                        // silent no-op launch.
+                        app.manage(Server { child: Mutex::new(None) });
+                        app.manage(Base(Mutex::new(format!("http://127.0.0.1:{DEFAULT_PORT}"))));
+                        app.manage(IsHost(true));
+                        let win = create_main_window(&handle)?;
+                        std::thread::spawn(move || {
+                            std::thread::sleep(Duration::from_millis(900));
+                            let _ = win.eval(format!(
+                                "window.__meghxlFailed && window.__meghxlFailed({})",
+                                js_str(&message)
+                            ));
+                        });
+                    }
+                },
             }
             Ok(())
         })

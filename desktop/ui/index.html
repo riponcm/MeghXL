@@ -44,6 +44,30 @@
   body.failed .bar { display: none; }
   body.failed .err { display: block; }
   body.failed .mark { animation: none; filter: saturate(0.4); }
+
+  /* Setup, waiting and warnings replace the spinner. */
+  body.panel .bar, body.panel #msg { display: none; }
+  body.panel .mark { animation: none; }
+  .card { display: none; max-width: 420px; margin: 18px auto 0; text-align: left; -webkit-user-select: text; user-select: text; }
+  body.panel .card.on { display: block; }
+  .card p { color: #b9b9cf; font-size: 13.5px; margin: 0 0 12px; }
+  .choice { display: grid; gap: 10px; margin-top: 6px; }
+  button {
+    font: inherit; font-weight: 600; cursor: pointer; border-radius: 10px; padding: 11px 14px;
+    border: 1px solid #ffffff1f; background: #ffffff0d; color: #e8e8f2; text-align: left;
+  }
+  button.primary { background: linear-gradient(135deg, #6366f1, #8b5cf6); border-color: transparent; }
+  button:disabled { opacity: .5; cursor: default; }
+  button small { display: block; font-weight: 400; color: #c7c7dc; font-size: 12px; margin-top: 2px; }
+  input {
+    width: 100%; font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid #ffffff24;
+    background: #00000040; color: #fff; margin: 4px 0 10px;
+  }
+  .fp { font: 600 17px ui-monospace, Menlo, monospace; letter-spacing: 2px; padding: 10px 12px; border-radius: 10px; background: #00000040; border: 1px solid #ffffff1f; margin: 6px 0 12px; text-align: center; }
+  .card .warn, .warn { color: #fca5a5; }
+  .row { display: flex; gap: 8px; }
+  .row button { flex: 1; text-align: center; }
+  .note { font-size: 12px !important; color: #9a9ab5 !important; }
 </style>
 </head>
 <body>
@@ -59,6 +83,47 @@
     <p id="msg">Starting your local transfer hub…</p>
     <div class="bar"><i></i></div>
     <p class="err" id="err"></p>
+
+    <!-- First launch: which computer is the host? -->
+    <div class="card" id="setup">
+      <p>MeghXL has one host — the computer that keeps the files and runs the board. Every other computer and phone joins it.</p>
+      <div class="choice">
+        <button class="primary" id="be-host">This computer is the host<small>Choose this on the computer that should keep everyone's files.</small></button>
+        <button id="join">Join the host<small>The host is another computer on this network.</small></button>
+      </div>
+    </div>
+
+    <div class="card" id="find">
+      <p>The host's address is in its MeghXL window (Host console → Settings), for example <b>192.168.1.20:3000</b>. Often <b>meghxl.local</b> works too.</p>
+      <input id="address" value="meghxl.local" spellcheck="false" autocomplete="off">
+      <div class="row"><button id="back">Back</button><button class="primary" id="look">Find the host</button></div>
+      <p class="warn" id="find-err" style="margin-top:10px"></p>
+    </div>
+
+    <div class="card" id="confirm">
+      <p>Found a MeghXL host at <b id="found-at"></b>. Check that this fingerprint matches the one in the <b>host's</b> console (Settings → Host computer):</p>
+      <div class="fp" id="found-fp"></div>
+      <p class="note">From now on this app only ever talks to the computer holding this key. Anything else claiming to be MeghXL is refused.</p>
+      <div class="row"><button id="not-it">It doesn't match</button><button class="primary" id="pair">It matches — join</button></div>
+      <p class="warn" id="pair-err" style="margin-top:10px"></p>
+    </div>
+
+    <div class="card" id="waiting">
+      <p>The host <b id="wait-host"></b> is offline. MeghXL is waiting for it and will open as soon as it's back.</p>
+      <p class="note">Nobody else can take its place: this app only accepts the host it was paired with.</p>
+    </div>
+
+    <div class="card" id="impostor">
+      <p class="warn"><b>Something is pretending to be the MeghXL host.</b></p>
+      <p>A computer at <b id="imp-at"></b> answered, but it could not prove it is the host this app was paired with. MeghXL refused to connect.</p>
+      <p class="note">Expected fingerprint: <span id="imp-want"></span><br>It showed: <span id="imp-got"></span></p>
+      <p class="note">If the host was really replaced, restore it from its recovery key — this app will then trust it again by itself. Keeps checking every few seconds.</p>
+    </div>
+
+    <div class="card" id="moved">
+      <p>This computer is no longer the MeghXL host — the role moved to another computer<span id="moved-to"></span>.</p>
+      <p class="note">If the new host can't be reached, use MeghXL → Forget This Host to pair again.</p>
+    </div>
   </div>
   <script>
     // The Rust shell navigates this window to the dashboard once the server is
@@ -67,6 +132,52 @@
       document.body.classList.add('failed');
       document.getElementById('msg').textContent = 'Could not start the server';
       document.getElementById('err').textContent = message || 'Unknown error.';
+    };
+
+    // Everything below is driven by the Rust shell (see host_link.rs).
+    var $ = function (id) { return document.getElementById(id); };
+    function show(id) {
+      document.body.classList.add('panel');
+      document.querySelectorAll('.card').forEach(function (c) { c.classList.toggle('on', c.id === id); });
+    }
+    function invoke(cmd, args) {
+      return window.__TAURI_INTERNALS__.invoke(cmd, args || {});
+    }
+
+    window.__meghxlSetup = function () { show('setup'); };
+    window.__meghxlWaiting = function (host) { $('wait-host').textContent = host || ''; show('waiting'); };
+    window.__meghxlImpostor = function (at, want, got) {
+      $('imp-at').textContent = at; $('imp-want').textContent = want; $('imp-got').textContent = got || '(none)';
+      show('impostor');
+    };
+    window.__meghxlMoved = function (to) { $('moved-to').textContent = to ? ' (' + to + ')' : ''; show('moved'); };
+
+    var found = null;
+    $('be-host').onclick = function () {
+      this.disabled = true;
+      invoke('choose_host').catch(function (e) { $('be-host').disabled = false; alert(e); });
+    };
+    $('join').onclick = function () { show('find'); $('address').focus(); $('address').select(); };
+    $('back').onclick = function () { show('setup'); };
+    $('look').onclick = function () {
+      var btn = this;
+      btn.disabled = true; $('find-err').textContent = 'Looking…';
+      invoke('find_host', { address: $('address').value }).then(function (r) {
+        found = r;
+        $('found-at').textContent = r.address.replace(/^http:\/\//, '');
+        $('found-fp').textContent = r.fingerprint;
+        $('find-err').textContent = '';
+        show('confirm');
+      }).catch(function (e) { $('find-err').textContent = String(e); })
+        .then(function () { btn.disabled = false; });
+    };
+    $('address').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('look').click(); });
+    $('not-it').onclick = function () { found = null; show('find'); $('find-err').textContent = "Not paired. If the fingerprint doesn't match, that computer isn't your host."; };
+    $('pair').onclick = function () {
+      if (!found) return;
+      this.disabled = true; $('pair-err').textContent = '';
+      invoke('pair_host', { address: found.address, publicKey: found.publicKey })
+        .catch(function (e) { $('pair').disabled = false; $('pair-err').textContent = String(e); });
     };
   </script>
 </body>
