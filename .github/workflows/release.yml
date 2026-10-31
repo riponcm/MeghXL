@@ -109,24 +109,6 @@ jobs:
         if: runner.os == 'Linux'
         run: echo "LINUX_ARGS=--bundles deb,rpm" >> "$GITHUB_ENV"
 
-      # Temporary check: does the AppImage published with 1.0.1 still have a
-      # working server, or did linuxdeploy corrupt it there too?
-      - name: Check the 1.0.1 AppImage's server (Linux)
-        if: runner.os == 'Linux'
-        continue-on-error: true
-        run: |
-          cd "$RUNNER_TEMP"
-          curl -sfL -o old.AppImage https://github.com/riponcm/MeghXL/releases/download/v1.0.1/MeghXL_1.0.1_amd64.AppImage
-          chmod +x old.AppImage && ./old.AppImage --appimage-extract > /dev/null
-          S=squashfs-root/usr/bin/meghxl-server
-          readelf -d "$S" | grep -i -E "runpath|rpath" || echo "no RUNPATH"
-          ldd "$S" > /dev/null 2>&1 && echo "ldd: ok" || echo "ldd: FAILS on the 1.0.1 server"
-          mkdir -p d/u
-          PORT=3997 MDNS=off UPLOAD_DIR=d/u DATA_FILE=d/m.json "$S" > old.log 2>&1 &
-          sleep 6
-          curl -sf -m 3 http://127.0.0.1:3997/api/health && echo " <- 1.0.1 AppImage server works" || { echo "1.0.1 AppImage server does NOT start:"; head -20 old.log; }
-          kill %1 2>/dev/null || true
-
       # ---- macOS: Developer ID signing + notarization -----------------------
       - name: Import the Developer ID certificate
         if: runner.os == 'macOS' && env.MAC_SIGNING == 'true'
