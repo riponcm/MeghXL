@@ -1101,12 +1101,55 @@ function switchSendTab(tab) {
 }
 
 // ---------- about / updates ----------
+// Release notes are GitHub markdown. Show headings, bullets, **bold**, `code`
+// and [links](…) as text — built as DOM nodes, never as HTML.
+function inlineMd(text) {
+  const frag = document.createDocumentFragment();
+  for (const part of text.split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/)) {
+    if (!part) continue;
+    const m = /^\[([^\]]+)\]\([^)]+\)$/.exec(part);
+    if (m) frag.append(m[1]);
+    else if (/^\*\*.+\*\*$/.test(part)) { const b = document.createElement('strong'); b.textContent = part.slice(2, -2); frag.append(b); }
+    else if (/^`.+`$/.test(part)) { const c = document.createElement('code'); c.textContent = part.slice(1, -1); frag.append(c); }
+    else frag.append(part);
+  }
+  return frag;
+}
+function renderNotes(el, md) {
+  el.replaceChildren();
+  let list = null;
+  for (const raw of md.split(/\r?\n/)) {
+    const line = raw.trim();
+    const bullet = /^[-*]\s+(.*)$/.exec(line);
+    if (bullet) {
+      if (!list) { list = document.createElement('ul'); el.append(list); }
+      const li = document.createElement('li');
+      li.append(inlineMd(bullet[1]));
+      list.append(li);
+      continue;
+    }
+    list = null;
+    if (!line) continue;
+    const head = /^#{1,6}\s+(.*)$/.exec(line);
+    const node = document.createElement(head ? 'h4' : 'p');
+    node.append(inlineMd(head ? head[1] : line));
+    el.append(node);
+  }
+}
 // The only outbound request MeghXL ever makes, and only on this button.
 async function checkForUpdates() {
   const btn = $('#update-btn');
   const status = $('#update-status');
   const notes = $('#update-notes');
   const link = $('#update-link');
+  // Inside the desktop app: hand over to its updater, which downloads, checks
+  // the signature and installs. The app catches this navigation; the page stays.
+  if (window.__MEGHXL_DESKTOP__ && window.__MEGHXL_DESKTOP__.updater) {
+    status.className = 'about-tag';
+    status.textContent = 'Checking… MeghXL will show a window if there is an update to install.';
+    location.assign('/desktop/check-updates');
+    return;
+  }
   btn.disabled = true;
   status.className = 'about-tag';
   status.textContent = 'Checking…';
@@ -1129,7 +1172,7 @@ async function checkForUpdates() {
       status.textContent = `Version ${d.latest} is available — you have ${d.current}.`;
       link.href = d.url;
       link.hidden = false;
-      notes.textContent = d.notes || 'No release notes.';
+      renderNotes(notes, d.notes || 'No release notes.');
       notes.hidden = false;
       $('#about-badge').hidden = false;
     } else {

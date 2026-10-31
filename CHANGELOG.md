@@ -9,6 +9,24 @@ should mirror the entry below it.
 
 ## [Unreleased]
 
+## [1.1.1] — 2026-10-31
+
+### Fixed
+- **Links in the desktop app did nothing.** Download the update, Star on GitHub,
+  Changelog, Report an issue and the other About links open in a new window,
+  which the app silently dropped. They now open in your browser.
+- **A line of the release notes showed backwards** on the About page. The 1.1.0
+  notes quoted the right-to-left character they warn about; direction characters
+  are now removed from release notes before they are shown.
+- Release notes on the About page are formatted (headings, bullets, bold) instead
+  of showing raw markdown.
+
+### Changed
+- **Update from the About page.** In the desktop app, Check for updates now runs
+  the built-in updater (the same as the menu item): it shows what's new, and on
+  Install downloads the signed update, installs it and offers to restart. In a
+  browser on other devices the button still checks and links to the release.
+
 ## [1.1.0] — 2026-10-31
 
 ### Security
@@ -29,7 +47,7 @@ should mirror the entry below it.
 - **Blocking only cut the live connection** — a blocked device could keep
   uploading, posting and deleting. A block now covers every request.
 - **Disguised programs.** Filenames lose invisible characters such as the
-  right-to-left override that makes `photo‮gpj.exe` read as `photoexe.jpg`, and
+  right-to-left override that makes `photo[U+202E]gpj.exe` read as `photoexe.jpg`, and
   long names keep their real extension. Uploads are checked: programs, scripts,
   installers, macro documents and zipped apps are labelled; a program named like
   a photo or document is called out; saving one asks first. The type a sender
@@ -216,6 +234,8 @@ First public release.
   disk instead of ever rendering them.
 - No telemetry. The only outbound request is a manual update check.
 
-[Unreleased]: https://github.com/riponcm/MeghXL/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/riponcm/MeghXL/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/riponcm/MeghXL/compare/v1.1.0...v1.1.1
+[1.1.0]: https://github.com/riponcm/MeghXL/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/riponcm/MeghXL/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/riponcm/MeghXL/releases/tag/v1.0.0

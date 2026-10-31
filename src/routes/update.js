@@ -12,6 +12,9 @@ const RELEASES_API = 'https://api.github.com/repos/riponcm/MeghXL/releases/lates
 const RELEASES_PAGE = 'https://github.com/riponcm/MeghXL/releases';
 const CACHE_MS = 60 * 60 * 1000; // GitHub allows 60 unauthenticated calls an hour
 const TIMEOUT_MS = 8000;
+// Direction overrides in the notes (1.1.0's mention U+202E itself) would flip
+// the rest of the line on the About page.
+const BIDI = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
 
 /** "1.2.0" > "1.10.0"? No. Compare numerically, part by part. */
 function isNewer(latest, current) {
@@ -56,7 +59,7 @@ module.exports = function createUpdateRouter() {
       const latest = String(rel.tag_name || '').replace(/^v/, '');
       const body = {
         latest: latest || null,
-        notes: typeof rel.body === 'string' ? rel.body.slice(0, 4000) : '',
+        notes: typeof rel.body === 'string' ? rel.body.replace(BIDI, '').slice(0, 4000) : '',
         publishedAt: rel.published_at || null,
         // Only ever link to this project's own release pages.
         url: typeof rel.html_url === 'string' && rel.html_url.startsWith(RELEASES_PAGE + '/') ? rel.html_url : RELEASES_PAGE,

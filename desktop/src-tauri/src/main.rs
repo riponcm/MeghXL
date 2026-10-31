@@ -22,7 +22,7 @@ use tauri::menu::{
     AboutMetadata, CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, PredefinedMenuItem, Submenu,
 };
 use tauri::tray::TrayIconBuilder;
-use tauri::webview::{DownloadEvent, WebviewWindow, WebviewWindowBuilder};
+use tauri::webview::{DownloadEvent, NewWindowResponse, WebviewWindow, WebviewWindowBuilder};
 use tauri::WebviewUrl;
 use tauri::{Manager, RunEvent, WindowEvent};
 use tauri_plugin_autostart::ManagerExt as AutostartExt;
@@ -204,11 +204,15 @@ fn mark_downloaded(path: &Path, url: &str) {
 #[cfg(not(any(target_os = "macos", windows)))]
 fn mark_downloaded(_path: &Path, _url: &str) {}
 
+/// The dashboard asks for the built-in updater by navigating here.
+const UPDATE_PATH: &str = "/desktop/check-updates";
+
 /// The dashboard window. Files are always written to disk — this window never
 /// renders a transferred file, whatever its type.
 fn create_main_window(app: &tauri::AppHandle) -> tauri::Result<WebviewWindow> {
     let dl = app.clone();
     let nav = app.clone();
+    let popup = app.clone();
     let origin = app.clone();
     WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
         .title("MeghXL")
@@ -258,6 +262,9 @@ fn create_main_window(app: &tauri::AppHandle) -> tauri::Result<WebviewWindow> {
             }
             true
         })
+        // Tells the dashboard it runs inside the app, so About can offer the
+        // built-in updater instead of a download link.
+        .initialization_script("window.__MEGHXL_DESKTOP__ = { updater: true };")
         // Keep this window on the dashboard; send anything else to the browser.
         .on_navigation(move |url| {
             // The app's own pages, and the dashboard's origin — nothing else.
@@ -265,6 +272,12 @@ fn create_main_window(app: &tauri::AppHandle) -> tauri::Result<WebviewWindow> {
             let same_origin = home.is_some_and(|h| {
                 h.scheme() == url.scheme() && h.host_str() == url.host_str() && h.port_or_known_default() == url.port_or_known_default()
             });
+            // About's "Check for updates" — the same flow as the menu item.
+            // Installing still needs the user's yes and a signed package.
+            if same_origin && url.path() == UPDATE_PATH {
+                check_for_updates(&nav);
+                return false;
+            }
             let allowed = matches!(url.scheme(), "tauri" | "asset")
                 || url.host_str() == Some("tauri.localhost")
                 || same_origin;
@@ -272,6 +285,14 @@ fn create_main_window(app: &tauri::AppHandle) -> tauri::Result<WebviewWindow> {
                 let _ = nav.opener().open_url(url.to_string(), None::<&str>);
             }
             allowed
+        })
+        // target="_blank" links (GitHub, the update download) ask for a new
+        // window, which on_navigation never sees; without this they do nothing.
+        .on_new_window(move |url, _features| {
+            if matches!(url.scheme(), "http" | "https") {
+                let _ = popup.opener().open_url(url.to_string(), None::<&str>);
+            }
+            NewWindowResponse::Deny
         })
         .build()
 }

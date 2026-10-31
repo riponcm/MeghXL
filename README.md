@@ -39,13 +39,13 @@ A [matily.org](https://matily.org/meghxl/) product. Free and open source under t
 Apache 2.0 license.
 
 <p align="center">
-  <a href="https://github.com/riponcm/MeghXL/releases/download/v1.1.0/MeghXL_1.1.0_x64-setup.exe"><img src="assets/buttons/get-windows.svg" alt="Download MeghXL for Windows x64 (EXE installer)" width="200" height="53" /></a>
-  <a href="https://github.com/riponcm/MeghXL/releases/download/v1.1.0/MeghXL_1.1.0_aarch64.dmg"><img src="assets/buttons/get-mac-apple-silicon.svg" alt="Download MeghXL for Mac with Apple Silicon (DMG)" width="200" height="53" /></a>
-  <a href="https://github.com/riponcm/MeghXL/releases/download/v1.1.0/MeghXL_1.1.0_x64.dmg"><img src="assets/buttons/get-mac-intel.svg" alt="Download MeghXL for Mac with Intel (DMG)" width="200" height="53" /></a>
+  <a href="https://github.com/riponcm/MeghXL/releases/download/v1.1.1/MeghXL_1.1.1_x64-setup.exe"><img src="assets/buttons/get-windows.svg" alt="Download MeghXL for Windows x64 (EXE installer)" width="200" height="53" /></a>
+  <a href="https://github.com/riponcm/MeghXL/releases/download/v1.1.1/MeghXL_1.1.1_aarch64.dmg"><img src="assets/buttons/get-mac-apple-silicon.svg" alt="Download MeghXL for Mac with Apple Silicon (DMG)" width="200" height="53" /></a>
+  <a href="https://github.com/riponcm/MeghXL/releases/download/v1.1.1/MeghXL_1.1.1_x64.dmg"><img src="assets/buttons/get-mac-intel.svg" alt="Download MeghXL for Mac with Intel (DMG)" width="200" height="53" /></a>
   <a href="#linux"><img src="assets/buttons/get-linux.svg" alt="Download MeghXL for Linux x64 (DEB or RPM)" width="200" height="53" /></a>
 </p>
 
-<p align="center"><sub>v1.1.0 · Signed and notarized · Free, no account · Not sure which Mac? Apple menu → About This Mac · <a href="https://github.com/riponcm/MeghXL/releases/tag/v1.1.0">Release notes</a> · <a href="#download">Install notes</a></sub></p>
+<p align="center"><sub>v1.1.1 · Signed and notarized · Free, no account · Not sure which Mac? Apple menu → About This Mac · <a href="https://github.com/riponcm/MeghXL/releases/tag/v1.1.1">Release notes</a> · <a href="#download">Install notes</a></sub></p>
 
 ## How MeghXL compares
 
@@ -173,12 +173,12 @@ opens a browser — or, on other computers, the same app joins the host.
 
 | Your computer | Package | Download |
 |---|---|---|
-| **Windows** 10/11 — x64 | EXE installer (or MSI) | [Download for Windows](https://github.com/riponcm/MeghXL/releases/download/v1.1.0/MeghXL_1.1.0_x64-setup.exe) · [MSI](https://github.com/riponcm/MeghXL/releases/download/v1.1.0/MeghXL_1.1.0_x64_en-US.msi) |
-| **Mac with Apple Silicon** (M1, M2, M3, M4…) | DMG | [Download for Apple Silicon](https://github.com/riponcm/MeghXL/releases/download/v1.1.0/MeghXL_1.1.0_aarch64.dmg) |
-| **Mac with Intel** | DMG | [Download for Intel Mac](https://github.com/riponcm/MeghXL/releases/download/v1.1.0/MeghXL_1.1.0_x64.dmg) |
-| **Linux** — x64 | DEB / RPM | [DEB](https://github.com/riponcm/MeghXL/releases/download/v1.1.0/MeghXL_1.1.0_amd64.deb) · [RPM](https://github.com/riponcm/MeghXL/releases/download/v1.1.0/MeghXL-1.1.0-1.x86_64.rpm) |
+| **Windows** 10/11 — x64 | EXE installer (or MSI) | [Download for Windows](https://github.com/riponcm/MeghXL/releases/download/v1.1.1/MeghXL_1.1.1_x64-setup.exe) · [MSI](https://github.com/riponcm/MeghXL/releases/download/v1.1.1/MeghXL_1.1.1_x64_en-US.msi) |
+| **Mac with Apple Silicon** (M1, M2, M3, M4…) | DMG | [Download for Apple Silicon](https://github.com/riponcm/MeghXL/releases/download/v1.1.1/MeghXL_1.1.1_aarch64.dmg) |
+| **Mac with Intel** | DMG | [Download for Intel Mac](https://github.com/riponcm/MeghXL/releases/download/v1.1.1/MeghXL_1.1.1_x64.dmg) |
+| **Linux** — x64 | DEB / RPM | [DEB](https://github.com/riponcm/MeghXL/releases/download/v1.1.1/MeghXL_1.1.1_amd64.deb) · [RPM](https://github.com/riponcm/MeghXL/releases/download/v1.1.1/MeghXL-1.1.1-1.x86_64.rpm) |
 
-[Release notes](https://github.com/riponcm/MeghXL/releases/tag/v1.1.0) · [All releases](https://github.com/riponcm/MeghXL/releases)
+[Release notes](https://github.com/riponcm/MeghXL/releases/tag/v1.1.1) · [All releases](https://github.com/riponcm/MeghXL/releases)
 
 Every installer is self-contained — the server is compiled in, so there is no
 runtime to install (26–40 MB). Open it and the dashboard appears; a tray icon keeps
@@ -193,8 +193,8 @@ installed it.)
 <a id="linux"></a>**Linux:** install the package for your distribution —
 
 ```bash
-sudo apt install ./MeghXL_1.1.0_amd64.deb       # Debian, Ubuntu, Mint
-sudo dnf install ./MeghXL-1.1.0-1.x86_64.rpm    # Fedora, RHEL, openSUSE (zypper)
+sudo apt install ./MeghXL_1.1.1_amd64.deb       # Debian, Ubuntu, Mint
+sudo dnf install ./MeghXL-1.1.1-1.x86_64.rpm    # Fedora, RHEL, openSUSE (zypper)
 ```
 
 > Used the 1.0.1 **AppImage**? Install the `.deb` or `.rpm` once; the in-app
