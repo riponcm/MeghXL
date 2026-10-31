@@ -57,6 +57,7 @@ module.exports = function createAdminRouter({ hub, files }) {
       },
       devices: hub.rosterDetailed(),
       requests: store.listRequests(),
+      impostors: hub.impostors ? hub.impostors() : [],
       blocked: store.listBlocked(),
       announcements: store.listAnnouncements(),
       settings: store.getSettings(),

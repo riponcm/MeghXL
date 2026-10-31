@@ -357,6 +357,35 @@ function setComputerName(key, name) {
   persist();
 }
 
+// ---- backups and moves -------------------------------------------------------
+
+// What a backup carries: the host's settings and decisions — never the files
+// themselves (a move copies those separately), never the activity log.
+const SNAPSHOT_KEYS = ['settings', 'blocked', 'announcements', 'join', 'approved', 'deviceNames', 'deviceSeen',
+  'computerNames', 'notes', 'adminKey'];
+
+function snapshot() {
+  return JSON.parse(JSON.stringify(Object.fromEntries(SNAPSHOT_KEYS.map((k) => [k, state[k]]))));
+}
+
+/** Take settings and decisions from a backup or a previous host. */
+function restoreSnapshot(snap) {
+  if (!snap || typeof snap !== 'object') return;
+  const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : null);
+  if (obj(snap.settings)) state.settings = snap.settings;
+  if (Array.isArray(snap.blocked)) state.blocked = snap.blocked;
+  if (Array.isArray(snap.announcements)) state.announcements = snap.announcements;
+  if (Array.isArray(snap.notes)) state.notes = snap.notes.slice(0, MAX_NOTES);
+  if (obj(snap.join)) state.join = snap.join;
+  if (obj(snap.approved)) state.approved = dict(snap.approved);
+  if (obj(snap.deviceNames)) state.deviceNames = dict(snap.deviceNames);
+  if (obj(snap.deviceSeen)) state.deviceSeen = dict(snap.deviceSeen);
+  if (obj(snap.computerNames)) state.computerNames = dict(snap.computerNames);
+  if (typeof snap.adminKey === 'string') state.adminKey = snap.adminKey;
+  pruneDeviceNames();
+  persist();
+}
+
 function getJoin() {
   return state.join;
 }
@@ -404,6 +433,8 @@ module.exports = {
   setAdminKey,
   getJoin,
   setJoin,
+  snapshot,
+  restoreSnapshot,
   isApproved,
   approve,
   listRequests,

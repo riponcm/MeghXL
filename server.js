@@ -19,6 +19,8 @@ const createNotesRouter = require('./src/routes/notes');
 const createAdminRouter = require('./src/routes/admin');
 const createUpdateRouter = require('./src/routes/update');
 const createJoinRouter = require('./src/routes/join');
+const createHostRouter = require('./src/routes/host');
+const hostIdentity = require('./src/host-identity');
 const { requestGuard } = require('./src/request-guard');
 const { isAdmin } = require('./src/admin-auth');
 const { deviceOf, remoteIp } = require('./src/identity');
@@ -54,8 +56,12 @@ function buildApp(hub) {
   // First, before any route or static file: refuse DNS rebinding everywhere and
   // cross-site writes (CSRF). See src/request-guard.js.
   app.use(requestGuard);
+  app.use(retiredGuard);
   app.use(blockGuard);
-  app.use(express.json({ limit: '16kb' }));
+  // Request bodies are small — except a settings backup being restored.
+  const smallJson = express.json({ limit: '16kb' });
+  const backupJson = express.json({ limit: '4mb' });
+  app.use((req, res, next) => (req.path.toLowerCase() === '/api/admin/host/restore' ? backupJson : smallJson)(req, res, next));
   // Private mode (off unless the host turns it on): invited devices only.
   app.use(join.gate(isAdmin));
   // Approving devices (off unless the host turns it on): new ones wait.
@@ -66,13 +72,18 @@ function buildApp(hub) {
   const admin = createAdminRouter({ hub, files });
   const update = createUpdateRouter();
   const joinRoutes = createJoinRouter();
+  const hostRoutes = createHostRouter({ hub });
   app.use(joinRoutes.router);
+  app.use(hostRoutes.router);
   app.use(files.router);
   app.use(notes.router);
   app.use(admin.router);
   app.use(update.router);
 
-  app.get('/api/health', (req, res) => res.json({ ok: true, version: config.version }));
+  app.get('/api/health', (req, res) => {
+    const { retired } = hostIdentity.publicInfo();
+    res.json({ ok: true, version: config.version, ...(retired ? { retired: true, movedTo: retired.movedTo } : {}) });
+  });
 
   // Host console page. no-store so the browser never serves a stale console.
   app.get('/admin', (req, res) => {
@@ -108,6 +119,25 @@ function buildApp(hub) {
   });
 
   return { app, files };
+}
+
+/**
+ * After the host role moved to another computer, this one only points there:
+ * no board, no uploads, no console — nothing that could pass for the host.
+ */
+function retiredGuard(req, res, next) {
+  if (!hostIdentity.isRetired()) return next();
+  const p = req.path.toLowerCase();
+  if (p === '/api/health' || p === '/api/host/identity') return next();
+  const { movedTo } = hostIdentity.publicInfo().retired;
+  if (p.startsWith('/api/') || p.startsWith('/d/')) {
+    return res.status(410).json({ error: 'This computer is no longer the MeghXL host.', retired: true, movedTo });
+  }
+  const link = movedTo ? `<p><a href="${movedTo.replace(/[<>"&]/g, '')}">Go to the MeghXL host</a></p>` : '';
+  res.status(410).type('html').send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MeghXL moved</title><body style="font:16px system-ui;background:#0f1117;color:#e7e9ee;display:grid;place-items:center;min-height:100vh;margin:0">
+<div style="max-width:420px;padding:24px;text-align:center"><h1 style="font-size:20px">MeghXL moved to another computer</h1>
+<p>This computer is no longer the host.</p>${link}</div>`);
 }
 
 /**
@@ -160,6 +190,9 @@ function printBanner() {
 
 function main() {
   store.load();
+  // Creates the host key on first run — and refuses to start if the key file
+  // exists but is damaged, rather than becoming a different host.
+  try { hostIdentity.load(); } catch (err) { console.error(err.message); process.exit(1); }
   let key = process.env.ADMIN_KEY || store.getAdminKey();
   if (!key) {
     key = crypto.randomBytes(6).toString('hex');
@@ -190,7 +223,12 @@ function main() {
   });
 
   server.listen(config.port, config.host, () => {
-    if (config.mdnsEnabled) mdns.start({ name: config.mdnsName, port: config.port });
+    // A retired host doesn't announce itself: it isn't the host any more.
+    if (config.mdnsEnabled && !hostIdentity.isRetired()) {
+      const { fingerprint } = hostIdentity.publicInfo();
+      mdns.start({ name: config.mdnsName, port: config.port, id: fingerprint });
+      mdns.watch({ name: config.mdnsName, onImpostor: (alert) => hub.reportImpostor(alert) });
+    }
     printBanner();
   });
 

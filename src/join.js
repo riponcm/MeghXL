@@ -121,12 +121,14 @@ function rotate() {
 // Requests a device may make before it has joined: the page itself and its
 // assets (so it can show the join screen), joining, health, the admin-only
 // API (which checks admin on its own), and /d/ links (capabilities already).
+// /api/host/ is the host proving itself and the move channel, which carries
+// its own authentication (see routes/host.js).
 const OPEN_API = new Set(['/api/health', '/api/join', '/api/join/status', '/api/admin/whoami']);
 function isOpenPath(req) {
   // Express matches routes case-insensitively: /API/files reaches the same
   // handler as /api/files, so compare in lower case too.
   const p = req.path.toLowerCase();
-  if (p.startsWith('/d/') || p.startsWith('/api/admin/') || OPEN_API.has(p)) return true;
+  if (p.startsWith('/d/') || p.startsWith('/api/admin/') || p.startsWith('/api/host/') || OPEN_API.has(p)) return true;
   return req.method === 'GET' && !p.startsWith('/api/');
 }
 

@@ -139,7 +139,11 @@ function refresh() {
       state.data = d;
       renderSideStatus();
       const ae = document.activeElement;
-      if (!(ae && /^(INPUT|TEXTAREA)$/.test(ae.tagName))) renderSection();
+      // Don't redraw over something being typed — or typed and not yet sent
+      // (a transfer code, a pasted recovery key, a chosen backup file).
+      const typed = [...document.querySelectorAll('#admin-main input[type=text], #admin-main textarea, #admin-main input[type=file]')]
+        .some((el) => (el.files ? el.files.length : el.value));
+      if (!(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) && !typed) renderSection();
     })
     .catch((e) => {
       if (e.status === 403) {
@@ -217,6 +221,7 @@ function renderOverview() {
   const online = d.devices;
   main.replaceChildren(
     ...header('Overview', 'Running on your local network'),
+    impostorPanel(d),
     requestsPanel(d),
     h('div', { class: 'stat-grid' },
       stat('Devices online', String(d.stats.devicesOnline)),
@@ -345,6 +350,8 @@ function renderSettings() {
 
     privatePanel(d),
 
+    hostPanel(d),
+
     panel('Approvals', 'For when you want the final say', [
       toggleRow('Approve new devices', "A device that hasn't been here before waits on a \"waiting for the host\" screen until you let it in (Overview → Waiting for you). Devices already connected when you turn this on are let in automatically. Declining blocks the device.",
         !!d.settings.approveDevices, (on) => saveSetting({ approveDevices: on }, on ? 'New devices will wait for you' : 'New devices join straight away')),
@@ -368,6 +375,8 @@ function renderSettings() {
 
     panel('Host device', null,
       [h('div', { class: 'adm-meta', text: 'This is the host computer — every browser on it has admin access. All other devices on the network see only the normal dashboard. To make a different PC admin, set ADMIN_IP (or ADMIN_KEY for remote access).' })]),
+
+    takeOverPanel(),
 
     panel('Danger zone', null,
       [h('div', { style: 'display:flex;gap:8px;align-items:center;justify-content:space-between' },
@@ -444,6 +453,139 @@ function saveSetting(body, okMessage) {
   return api('/api/admin/settings', { method: 'POST', body })
     .then(() => { toast(okMessage || 'Saved', 'good'); refresh(); })
     .catch((e) => toast(e.message, 'danger'));
+}
+
+// ---------- the host role ----------
+// Shown on the Overview when another computer announces itself as MeghXL.
+function impostorPanel(d) {
+  const list = d.impostors || [];
+  if (!list.length) return document.createDocumentFragment();
+  return h('div', { class: 'panel alert-panel' },
+    h('div', { class: 'panel-h' }, h('h2', {}, icon('alert', 16), ' Another computer is posing as MeghXL')),
+    ...list.slice(0, 3).map((a) => h('p', { class: 'adm-meta', style: 'margin:6px 0', text: `${a.text} (${fmtAge(a.at)})` })),
+  );
+}
+
+let hostInfo = null; // GET /api/admin/host, refreshed with the settings view
+let recoveryShown = null;
+function hostPanel() {
+  const box = h('div', {}, h('div', { class: 'adm-meta', text: 'Loading…' }));
+  const paint = (info) => {
+    const rows = [
+      h('div', { class: 'limit-row' },
+        h('div', {},
+          h('div', { class: 'toggle-label', text: 'This computer is the host' }),
+          h('div', { class: 'adm-meta', text: 'There is only ever one host. Desktop apps on other computers remember it by this fingerprint and refuse any other computer that claims to be MeghXL.' })),
+        h('div', { class: 'fingerprint', text: info.fingerprint })),
+      // Recovery key
+      h('div', { class: 'limit-row' },
+        h('div', {},
+          h('div', { class: 'toggle-label', text: 'Recovery key' }),
+          h('div', { class: 'adm-meta', text: 'If this computer is lost or broken, the recovery key makes a replacement the same host. Keep it somewhere safe — a password manager, or printed. Anyone who has it can become your host.' })),
+        h('button', { class: 'btn small ghost', type: 'button', onclick: showRecovery }, recoveryShown ? 'Hide' : 'Show recovery key')),
+      recoveryShown ? h('div', { class: 'recovery-box' },
+        h('code', { class: 'recovery-code', text: recoveryShown }),
+        h('div', { style: 'display:flex;gap:8px;margin-top:8px' },
+          h('button', { class: 'btn small ghost', type: 'button', onclick: () => copy(recoveryShown) }, 'Copy'),
+          h('button', { class: 'btn small ghost', type: 'button', onclick: () => saveText(`MeghXL host recovery key\nFingerprint: ${info.fingerprint}\n\n${recoveryShown}\n`, 'meghxl-recovery-key.txt') }, 'Download'))) : null,
+      // Backup
+      h('div', { class: 'limit-row' },
+        h('div', {},
+          h('div', { class: 'toggle-label', text: 'Settings backup' }),
+          h('div', { class: 'adm-meta', text: 'Private mode, the join code, blocked and approved devices, limits and names — encrypted so only the recovery key opens it. Files are not included.' })),
+        h('a', { class: 'btn small ghost', href: '/api/admin/host/backup.json', download: '' }, 'Download backup')),
+      // Move
+      h('div', { class: 'limit-row' },
+        h('div', {},
+          h('div', { class: 'toggle-label', text: 'Move the host to another computer' }),
+          h('div', { class: 'adm-meta', text: 'Gives you a one-time code, valid for 30 minutes. On the new computer, open the host console → Settings → "Take over from the current host" and enter it. This computer then stops being the host.' })),
+        info.move
+          ? h('button', { class: 'btn small ghost', type: 'button', onclick: cancelMove }, 'Cancel move')
+          : h('button', { class: 'btn small ghost', type: 'button', onclick: startMove }, 'Start move')),
+      info.move ? h('div', { class: 'recovery-box' },
+        h('div', { class: 'adm-meta', text: `Transfer code — expires ${new Date(info.move.expiresAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` }),
+        h('code', { class: 'transfer-code', text: info.move.code }),
+        h('div', { class: 'adm-meta', text: `This computer's address: ${state.data.server.shareBase}. ${info.files} file${info.files === 1 ? '' : 's'} (${fmtSize(info.bytes)}) can be copied across.` })) : null,
+    ];
+    box.replaceChildren(...rows.filter(Boolean));
+  };
+  if (hostInfo) paint(hostInfo);
+  api('/api/admin/host').then((info) => { hostInfo = info; paint(info); }).catch((e) => toast(e.message, 'danger'));
+  return panel('Host computer', null, [box]);
+}
+function showRecovery() {
+  if (recoveryShown) { recoveryShown = null; return renderSection(); }
+  api('/api/admin/host/recovery', { method: 'POST' })
+    .then((r) => { recoveryShown = r.code; renderSection(); })
+    .catch((e) => toast(e.message, 'danger'));
+}
+function startMove() {
+  api('/api/admin/host/move', { method: 'POST' })
+    .then(() => { toast('Transfer code ready', 'good'); hostInfo = null; renderSection(); })
+    .catch((e) => toast(e.message, 'danger'));
+}
+function cancelMove() {
+  api('/api/admin/host/move', { method: 'DELETE' })
+    .then(() => { toast('Move cancelled'); hostInfo = null; renderSection(); })
+    .catch((e) => toast(e.message, 'danger'));
+}
+function saveText(text, filename) {
+  const a = h('a', { href: URL.createObjectURL(new Blob([text], { type: 'text/plain' })), download: filename });
+  document.body.append(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+
+// Becoming the host on this computer: from the current host (a planned
+// move), or from a recovery key (the old host is gone).
+function takeOverPanel() {
+  const from = h('input', { class: 'adm-input', type: 'text', placeholder: '192.168.1.20:3000', style: 'flex:1;min-width:160px' });
+  const code = h('input', { class: 'adm-input', type: 'text', placeholder: 'XXXX-XXXX-XXXX-XXXX', style: 'width:210px;letter-spacing:1px' });
+  const files = h('input', { type: 'checkbox', checked: 'checked' });
+  const progress = h('div', { class: 'adm-meta', style: 'margin-top:8px' });
+  const receive = () => {
+    api('/api/admin/host/receive', { method: 'POST', body: { from: from.value.trim(), code: code.value.trim(), copyFiles: files.checked } })
+      .then(() => pollReceive(progress))
+      .catch((e) => toast(e.message, 'danger'));
+  };
+
+  const recovery = h('textarea', { class: 'adm-input', rows: '2', placeholder: 'Recovery key', style: 'width:100%;font-family:ui-monospace,monospace' });
+  const backupFile = h('input', { type: 'file', accept: '.json,application/json' });
+  const restore = async () => {
+    let backup;
+    if (backupFile.files[0]) {
+      try { backup = JSON.parse(await backupFile.files[0].text()); } catch { return toast("That backup file can't be read", 'danger'); }
+    }
+    if (!confirmAction('Make this computer the host from the recovery key? Its current identity and settings are replaced.')) return;
+    api('/api/admin/host/restore', { method: 'POST', body: { recovery: recovery.value, backup } })
+      .then((r) => { toast(`This computer is the host now (${r.fingerprint})`, 'good'); recovery.value = ''; hostInfo = null; refresh(); })
+      .catch((e) => toast(e.message, 'danger'));
+  };
+
+  return panel('Take over the host role', 'On the computer that should become the host', [
+    h('div', { class: 'toggle-label', text: 'From the current host (planned move)' }),
+    h('div', { class: 'adm-meta', text: "On the current host, start a move to get a transfer code. Enter its address and the code here. Copying files is optional; shared links keep working." }),
+    h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin:8px 0' }, from, code),
+    h('label', { class: 'toggle-row', style: 'padding:2px 0' }, files, h('div', { class: 'adm-meta', text: 'Copy the files too' })),
+    h('button', { class: 'btn small', type: 'button', onclick: receive }, 'Take over'),
+    progress,
+    h('div', { style: 'border-top:1px solid var(--border);margin:14px 0' }),
+    h('div', { class: 'toggle-label', text: 'From the recovery key (the old host is gone)' }),
+    h('div', { class: 'adm-meta', text: 'Paste the recovery key. Add the settings backup if you have one. Files on the old computer cannot be recovered this way.' }),
+    h('div', { style: 'margin:8px 0' }, recovery),
+    h('div', { style: 'display:flex;gap:10px;align-items:center;flex-wrap:wrap' }, h('span', { class: 'adm-meta', text: 'Settings backup (optional):' }), backupFile),
+    h('button', { class: 'btn small', type: 'button', style: 'margin-top:10px', onclick: restore }, 'Restore host'),
+  ]);
+}
+function pollReceive(el) {
+  api('/api/admin/host').then((info) => {
+    const r = info.receiving;
+    if (!r) return;
+    el.textContent = r.step + (r.filesTotal ? ` — ${r.filesDone || 0}/${r.filesTotal} files` : '');
+    el.style.color = r.state === 'failed' ? 'var(--danger)' : '';
+    if (r.state === 'running') setTimeout(() => pollReceive(el), 700);
+    else if (r.state === 'done') { toast('This computer is the host now', 'good'); hostInfo = null; refresh(); }
+  }).catch(() => setTimeout(() => pollReceive(el), 1500));
 }
 
 // ---------- requests waiting for the host ----------

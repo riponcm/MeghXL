@@ -385,3 +385,11 @@ body {
 .size-pick { display: flex; gap: 8px; align-items: center; flex: none; }
 .custom-size { display: inline-flex; gap: 6px; align-items: center; }
 .custom-size[hidden] { display: none; }
+.fingerprint { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; letter-spacing: 1px; flex: none; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); }
+.recovery-box { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin: 4px 0 8px; }
+.recovery-code, .transfer-code { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; font-size: 14px; line-height: 1.6; user-select: all; }
+.transfer-code { font-size: 26px; letter-spacing: 3px; margin: 6px 0; }
+.alert-panel { border-color: rgba(248,114,114,.5); background: rgba(248,114,114,.06); }
+.alert-panel h2 { color: var(--danger); display: flex; align-items: center; gap: 6px; }
+.offline-banner { margin: 0 0 16px; padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(251,191,36,.45); background: rgba(251,191,36,.08); color: var(--text); font-size: 14px; }
+.offline-banner a { color: var(--accent); }

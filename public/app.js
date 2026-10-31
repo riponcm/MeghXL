@@ -940,6 +940,13 @@ function connectWs() {
     } else if (type === 'announce-clear') {
       state.announcement = null;
       renderAnnounceCards();
+    } else if (type === 'host-moved') {
+      // The host role moved to another computer (a planned move).
+      state.hostMoved = true;
+      const banner = $('#offline-banner');
+      banner.replaceChildren('MeghXL moved to another computer. ',
+        payload && payload.to ? h('a', { href: payload.to, text: 'Open the new host' }) : 'Ask the host for its new address.');
+      banner.hidden = false;
     } else if (type === 'join-required') {
       showJoinGate();
     } else if (type === 'approval-pending') {
@@ -961,7 +968,20 @@ function connectWs() {
     }
   };
 }
-function setOnline(online) { $('#side-dot').classList.toggle('offline', !online); }
+// Brief blips are normal (Wi-Fi, a phone waking up); say something only when
+// the host has been unreachable for a few seconds.
+let offlineTimer = null;
+function setOnline(online) {
+  $('#side-dot').classList.toggle('offline', !online);
+  clearTimeout(offlineTimer);
+  const banner = $('#offline-banner');
+  if (online) { if (!state.hostMoved) banner.hidden = true; return; }
+  if (state.hostMoved || state.blocked) return;
+  offlineTimer = setTimeout(() => {
+    banner.textContent = 'The host computer is offline — waiting for it to come back. Nothing is lost; this page reconnects by itself.';
+    banner.hidden = false;
+  }, 4000);
+}
 function setDeviceCount(n) {
   if (!Number.isFinite(n)) return;
   state.deviceCount = n;

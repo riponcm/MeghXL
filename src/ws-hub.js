@@ -296,6 +296,22 @@ function createHub(server) {
     for (const c of wss.clients) if (c.device) store.approve(c.device.id);
   }
 
+  // ---- impostors ---------------------------------------------------------------
+  // Another machine on the network announcing itself as MeghXL, or using this
+  // hub's name. Shown to the host (console banner + activity) as it happens.
+  const impostors = [];
+  function reportImpostor({ address, name, reason }) {
+    const text = reason === 'another-meghxl'
+      ? `Another computer (${address}) is announcing itself as MeghXL${name ? ` (${name})` : ''}. There should be only one host — if you don't know this computer, it may be trying to pose as yours.`
+      : `Another computer (${address}) is using this hub's name (${name}). Devices that type the name may reach it instead of this hub — scanning this host's QR code is safe.`;
+    const alert = { at: Date.now(), address, name, reason, text };
+    impostors.unshift(alert);
+    if (impostors.length > 20) impostors.length = 20;
+    activity.log('impostor', text, { ip: address });
+    notifyHosts('impostor', alert);
+    console.warn(`[meghxl] ${text}`);
+  }
+
   /** The upload limit this socket's device should check against. */
   function limitsFor(ws) {
     const cap = disk.fileCap(ws.isHost);
@@ -469,7 +485,7 @@ function createHub(server) {
 
   return {
     wss, broadcast, broadcastRoster, sendToDevice, idOfHandle, nameOfId, rosterDetailed, kickDevice, kickUnjoined,
-    decide, approveEveryoneOnline, pushLimits, notifyHosts,
+    decide, approveEveryoneOnline, pushLimits, notifyHosts, reportImpostor, impostors: () => impostors,
   };
 }
 
