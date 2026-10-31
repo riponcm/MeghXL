@@ -85,7 +85,12 @@ one machine has to be on, and in exchange nobody else installs anything.
   remote access, put it behind your own VPN or authenticated reverse proxy and
   set `PUBLIC_BASE_URL` (so links/QRs point at that address).
 - **Private mode for shared Wi-Fi** — in a café, office or hotel, the host can
-  require devices to join with an invite QR or a 6-digit code first.
+  require devices to join with an invite QR or a 6-digit code first, approve
+  each new device and each name change, and see it all in an activity log.
+- **Upload limits** — the host picks a largest-file size and a total storage
+  budget for other devices; phones see the limit before they start.
+- **One name per computer** — Safari, Chrome and Firefox on the same Mac show up
+  as one device, and a file sent to it reaches all of them.
 - **Program warnings** — apps, installers and scripts are labelled, a program
   disguised as a photo or PDF is called out, and saving one asks first. The
   desktop app marks received files so macOS and Windows check them before they

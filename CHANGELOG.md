@@ -50,6 +50,26 @@ should mirror the entry below it.
 - **Private mode** (host console → Settings → Who can join). Devices must join
   with the host's invite QR or 6-digit code before they can see or send
   anything; “New code” removes everyone at once. Off by default.
+- **Upload limits** (host console → Settings → Upload limits): a largest-file
+  size (no limit, 100 MB, 1 GB, 5 GB, 10 GB, 50 GB or custom) and a total storage
+  budget. They apply to other devices — the host computer can share anything —
+  and devices learn the limit when they connect, so a phone is told up front
+  instead of after a long upload.
+- **Approve new devices** (Settings → Approvals). A device that hasn't been here
+  before waits on a "waiting for the host" screen, hearing nothing from the
+  board, until the host lets it in from the console; declining blocks it.
+  Devices already connected when it's switched on are let in. Off by default.
+- **Approve name changes** (Settings → Approvals). Renames wait for the host's
+  tick; a brand-new device arriving with a made-up name starts with a default
+  one and asks. Off by default.
+- **One name per computer** (Settings → Approvals, on by default). Desktop
+  browsers at the same private address — Safari, Chrome and Firefox on one Mac —
+  are listed as one device with one name, and a direct send or message reaches
+  all of them. It switches itself off where more than 4 devices share an
+  address (a shared router or VPN), and the host can turn it off.
+- **Activity log** (host console → Activity): joins, approvals, renames, blocks,
+  refused uploads, wrong join codes and admin keys, setting changes. Floods are
+  counted in one entry.
 - **Refuse programs** (host console → Settings → Programs). Off by default:
   programs are allowed but labelled. When on, archives MeghXL can't look inside
   are refused as well.

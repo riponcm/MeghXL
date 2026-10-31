@@ -55,7 +55,9 @@ function keyLocked(ip) {
 function noteKeyFailure(ip) {
   const f = keyFailures.get(ip);
   if (!f || Date.now() - f.since > KEY_WINDOW_MS) keyFailures.set(ip, { n: 1, since: Date.now() });
-  else f.n++;
+  else if (++f.n === MAX_KEY_FAILURES) {
+    require('./activity').log('key-locked', `${MAX_KEY_FAILURES} wrong admin keys — key login paused for 15 minutes from this address`, { ip });
+  }
   if (keyFailures.size > 10000) keyFailures.clear(); // bounded, whatever happens
 }
 

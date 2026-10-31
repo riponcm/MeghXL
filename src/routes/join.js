@@ -5,6 +5,7 @@ const join = require('../join');
 const { isAdmin } = require('../admin-auth');
 const { remoteIp } = require('../identity');
 const { rateLimit } = require('../limits');
+const activity = require('../activity');
 
 /** Joining a private hub — see src/join.js. */
 module.exports = function createJoinRouter() {
@@ -25,9 +26,11 @@ module.exports = function createJoinRouter() {
     if (!join.isEnabled()) return res.json({ ok: true });
     const body = req.body || {};
     if (!join.check({ secret: body.secret, code: body.code })) {
+      activity.log('join-failed', 'Wrong join code', { ip: remoteIp(req), noisy: true });
       return res.status(403).json({ error: 'That code is not right. Ask the host for the current one.' });
     }
     res.setHeader('Set-Cookie', join.issueSession(req.secure));
+    activity.log('joined', body.secret ? 'A device joined with the invite link' : 'A device joined with the code', { ip: remoteIp(req) });
     res.json({ ok: true });
   });
 

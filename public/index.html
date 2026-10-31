@@ -11,7 +11,7 @@
   <link rel="icon" href="/favicon-16.png" sizes="16x16" type="image/png" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="manifest" href="/site.webmanifest" />
-  <link rel="stylesheet" href="/styles.css?v=11" />
+  <link rel="stylesheet" href="/styles.css?v=12" />
 </head>
 <body>
   <!-- Private mode: shown instead of the dashboard until this device joins. -->
@@ -23,6 +23,15 @@
       <input id="join-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" aria-label="Join code" />
       <div id="join-err" class="gate-err"></div>
       <button id="join-submit" class="btn" type="button">Join</button>
+    </div>
+  </div>
+
+  <!-- Shown while the host decides whether to let this device in. -->
+  <div id="wait-gate" class="gate" hidden>
+    <div class="gate-card">
+      <div class="logo"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+      <h1>Waiting for the host</h1>
+      <p>The host approves each new device. Ask them to let in <b id="wait-name">this device</b> from the host console — this page opens by itself once they do.</p>
     </div>
   </div>
 
@@ -223,6 +232,6 @@
 
   <div id="toast" class="toast" hidden></div>
 
-  <script src="/app.js?v=14"></script>
+  <script src="/app.js?v=15"></script>
 </body>
 </html>

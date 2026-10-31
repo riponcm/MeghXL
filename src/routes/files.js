@@ -17,6 +17,23 @@ const { deviceOf, handleOf, sameId, remoteIp } = require('../identity');
 const { cleanText, cleanFilename } = require('../text');
 const { classify, inSentence } = require('../filetype');
 const { rateLimit, createCounter } = require('../limits');
+const activity = require('../activity');
+
+const fmtMb = (bytes) => (bytes >= 1024 * 1024 * 1024
+  ? `${+(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB` : `${Math.round(bytes / (1024 * 1024))} MB`);
+
+/** The response for an upload stopped by a limit (see disk.uploadAllowance). */
+function limitError({ reason, cap }) {
+  if (reason === 'budget') {
+    return { status: 507, why: 'storage budget full',
+      error: "The hub's storage limit is full. Ask the host to delete some files or raise the limit." };
+  }
+  if (reason === 'disk') {
+    return { status: 507, why: 'host disk nearly full',
+      error: "The host computer is running out of disk space, so it can't take this file right now." };
+  }
+  return { status: 413, why: 'file too large', error: `File too large — the limit on this hub is ${fmtMb(cap)}.` };
+}
 
 const VALID_VISIBILITY = new Set(['public', 'private']);
 const MAX_EXPIRY_MINUTES = 7 * 24 * 60; // 7 days
@@ -72,6 +89,28 @@ function contentDisposition(name) {
   // encodeURIComponent leaves ' ( ) * alone; RFC 5987 doesn't allow them raw.
   const encoded = encodeURIComponent(name).replace(/['()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
   return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}
+
+/**
+ * Answer an upload before reading its body. A client still sending often sees
+ * a reset connection instead of the answer unless the body is read — so read
+ * and discard small ones; for big ones, answer and hang up (the dashboard
+ * checks the limit before it starts, so a person rarely gets here).
+ */
+const DRAIN_LIMIT = 64 * 1024 * 1024;
+function refuseEarly(req, res, status, error, declared) {
+  if (Number.isFinite(declared) && declared <= DRAIN_LIMIT) {
+    // Read (and drop) the rest, then answer: the client finishes sending and
+    // is listening by the time the answer comes.
+    let answered = false;
+    const answer = () => { if (!answered) { answered = true; res.status(status).json({ error }); } };
+    req.on('end', answer);
+    req.on('error', () => {});
+    req.resume();
+    return;
+  }
+  res.setHeader('Connection', 'close');
+  res.status(status).json({ error });
 }
 
 function unlinkPath(p) {
@@ -194,12 +233,16 @@ module.exports = function createFilesRouter(hub) {
       reservedBytes -= reserved;
     });
 
-    const allowance = Math.max(0, (await disk.uploadAllowance()) - reservedBytes);
-    const spaceBound = allowance < config.maxUploadBytes;
-    req.meghxlLimit = spaceBound ? 'disk' : 'cap';
+    const host = isAdmin(req);
+    const { bytes: allowance, reason } = await disk.uploadAllowance(host, () => reservedBytes);
+    req.meghxlLimit = { reason, bytes: allowance, cap: disk.fileCap(host) };
     const declared = Number(req.headers['content-length']);
-    if (allowance <= 0 || (spaceBound && Number.isFinite(declared) && declared > allowance + 1024 * 1024)) {
-      return res.status(507).json({ error: "The host computer is running out of disk space, so it can't take this file right now." });
+    // multipart adds a little around the file; allow for it before refusing.
+    const tooBig = Number.isFinite(declared) && declared > allowance + 1024 * 1024;
+    if (allowance <= 0 || tooBig) {
+      const r = limitError(req.meghxlLimit);
+      if (allowance <= 0 || reason !== 'cap') activity.log('upload-refused', `Refused an upload: ${r.why}`, { ip, noisy: true });
+      return refuseEarly(req, res, r.status, r.error, declared);
     }
     // Hold what this upload says it will send (browsers always say); one that
     // doesn't say gets the rest of the allowance and holds all of it.
@@ -264,6 +307,7 @@ module.exports = function createFilesRouter(hub) {
     if (verdict && store.getSettings().blockPrograms === true && !admin) {
       unlinkPath(req.file.path);
       const what = verdict.quiet ? "archives it can't look inside" : `programs (${inSentence(verdict.label)})`;
+      activity.log('upload-refused', `Refused “${originalName}”: ${verdict.quiet ? "archive it can't look inside" : inSentence(verdict.label)}`, { ip: remoteIp(req), noisy: true });
       return res.status(415).json({ error: `This hub doesn't accept ${what}. Ask the host if you need to share one.` });
     }
     // Quiet verdicts ("couldn't look inside") only matter to the setting above.
@@ -417,5 +461,5 @@ module.exports = function createFilesRouter(hub) {
     res.json({ ok: true });
   });
 
-  return { router, purgeFile, purgeExpired, cleanOrphans };
+  return { router, purgeFile, purgeExpired, cleanOrphans, limitError };
 };

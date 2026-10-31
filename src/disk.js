@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const { execFile } = require('node:child_process');
 const config = require('./config');
+const store = require('./store');
 
 // ---------------------------------------------------------------------------
 // Free space on the disk that holds uploads/.
@@ -66,18 +67,55 @@ async function freeBytes() {
   return bytes;
 }
 
+const MB = 1024 * 1024;
+
 /**
- * The most an upload may write right now: the configured cap, further limited
- * so the disk keeps its reserve. Returns 0 when there is no room at all, and
- * the plain cap when free space is unknown.
+ * The largest single file a device may share. MAX_UPLOAD_MB (set by whoever
+ * runs the server) is a hard ceiling for everyone; the host console's limit
+ * applies to the other devices — the host computer itself is never held to it.
  */
-async function uploadAllowance() {
+function fileCap(forHost) {
+  const s = store.getSettings();
+  const setting = !forHost && s.maxUploadMb > 0 ? s.maxUploadMb * MB : Infinity;
+  return Math.min(config.maxUploadBytes, setting);
+}
+
+/** Bytes the hub holds in files right now. */
+function storedBytes() {
+  return store.listAllFiles()
+    .filter((f) => !f.consumed && !store.isExpired(f))
+    .reduce((sum, f) => sum + (f.size || 0), 0);
+}
+
+/**
+ * The most an upload may write right now, and which limit decides it:
+ *   'cap'    — the largest-file limit,
+ *   'budget' — the host's total storage budget (other devices only),
+ *   'disk'   — keeping MIN_FREE_MB free on the disk (everyone, host too).
+ * `reserved()` returns what uploads already in progress have claimed: it
+ * doesn't show in free space or stored bytes yet, but it will. It's a function
+ * so it's read after the disk is measured — otherwise two uploads arriving
+ * together would each count the other as not there.
+ * `bytes` is 0 when there is no room at all; unknown free space is ignored.
+ */
+async function uploadAllowance(forHost = false, reservedNow = () => 0) {
   const free = await freeBytes();
-  if (free == null) return config.maxUploadBytes;
-  return Math.max(0, Math.min(config.maxUploadBytes, free - config.minFreeBytes));
+  const reserved = reservedNow();
+  let bytes = fileCap(forHost);
+  let reason = 'cap';
+  const budgetMb = store.getSettings().storageBudgetMb;
+  if (!forHost && budgetMb > 0) {
+    const left = Math.max(0, budgetMb * MB - storedBytes() - reserved);
+    if (left < bytes) { bytes = left; reason = 'budget'; }
+  }
+  if (free != null) {
+    const room = Math.max(0, free - config.minFreeBytes - reserved);
+    if (room < bytes) { bytes = room; reason = 'disk'; }
+  }
+  return { bytes, reason };
 }
 
 /** Forget the cached reading — call after an upload lands or a file is freed. */
 function invalidate() { cached = null; }
 
-module.exports = { freeBytes, uploadAllowance, invalidate, fromStatfs };
+module.exports = { freeBytes, uploadAllowance, fileCap, storedBytes, invalidate, fromStatfs };

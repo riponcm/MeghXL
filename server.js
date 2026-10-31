@@ -58,6 +58,8 @@ function buildApp(hub) {
   app.use(express.json({ limit: '16kb' }));
   // Private mode (off unless the host turns it on): invited devices only.
   app.use(join.gate(isAdmin));
+  // Approving devices (off unless the host turns it on): new ones wait.
+  app.use(approvalGate);
 
   const files = createFilesRouter(hub);
   const notes = createNotesRouter(hub);
@@ -89,11 +91,9 @@ function buildApp(hub) {
 
   // Upload-size + fallback error handler (must be last).
   app.use((err, req, res, next) => {
-    if (err && err.code === 'LIMIT_FILE_SIZE') {
-      if (req.meghxlLimit === 'disk') {
-        return res.status(507).json({ error: "The host computer is running out of disk space, so it can't take this file right now." });
-      }
-      return res.status(413).json({ error: `File too large (max ${config.maxUploadMb} MB)` });
+    if (err && err.code === 'LIMIT_FILE_SIZE' && req.meghxlLimit) {
+      const r = files.limitError(req.meghxlLimit);
+      return res.status(r.status).json({ error: r.error });
     }
     // Malformed uploads and bodies are the client's problem: a 400, without
     // filling the log with stack traces anyone on the network could trigger.
@@ -118,6 +118,13 @@ function blockGuard(req, res, next) {
   if (!store.isBlocked(deviceOf(req), remoteIp(req)) || isAdmin(req)) return next();
   if (req.path.startsWith('/api/')) return res.status(403).json({ error: 'This device is blocked by the host.', blocked: true });
   return res.status(403).type('text/plain').send('This device is blocked by the host.');
+}
+
+/** While the host approves devices, one not yet approved gets only the basics. */
+function approvalGate(req, res, next) {
+  if (store.getSettings().approveDevices !== true || join.isOpenPath(req) || isAdmin(req) ||
+      store.isApproved(deviceOf(req))) return next();
+  res.status(403).json({ error: 'Waiting for the host to let this device in.', pending: true });
 }
 
 function printBanner() {

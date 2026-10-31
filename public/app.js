@@ -32,6 +32,10 @@ function defaultDeviceName() {
 // The device id is a secret between this browser and the hub: it proves which
 // device is asking, and other devices only ever see a derived handle. 128 bits
 // from the browser's CSPRNG (available on plain http://, unlike randomUUID).
+function browserName() {
+  const n = defaultDeviceName();
+  return n.includes(' · ') ? n.split(' · ')[1] : null;
+}
 function makeId() {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
@@ -64,6 +68,7 @@ const state = {
   device: loadDevice(),
   myHandle: null, // how other devices see this one (sent by the hub)
   isAdmin: false,
+  maxUploadBytes: null, // the hub's largest-file limit for this device (null = none)
   devices: [],
   deviceCount: 1,
   announcement: null,
@@ -229,9 +234,10 @@ async function api(url, opts = {}) {
   const headers = { 'x-meghxl-device': state.device.id, ...(opts.headers || {}) };
   if (opts.json !== undefined) headers['Content-Type'] = 'application/json';
   const r = await fetch(url, { ...opts, headers, body: opts.json !== undefined ? JSON.stringify(opts.json) : opts.body });
-  if (r.status === 401) {
+  if (r.status === 401 || r.status === 403) {
     const data = await r.clone().json().catch(() => ({}));
     if (data.join) showJoinGate();
+    if (data.pending) showWaitGate();
   }
   return r;
 }
@@ -535,13 +541,36 @@ function replyTo(m) {
 }
 
 // ---------- devices (roster + rename) ----------
+// Browsers on the same computer arrive with the same `computer` tag (see
+// ws-hub.js): show them as one device. Sending to any of them reaches all.
+function groupedDevices() {
+  const out = [];
+  const byComputer = new Map();
+  for (const d of state.devices) {
+    const g = d.computer && byComputer.get(d.computer);
+    if (g) {
+      g.members.push(d);
+      if (d.agent && !g.agents.includes(d.agent)) g.agents.push(d.agent);
+      continue;
+    }
+    const entry = { ...d, members: [d], agents: d.agent ? [d.agent] : [] };
+    out.push(entry);
+    if (d.computer) byComputer.set(d.computer, entry);
+  }
+  return out;
+}
+function othersGrouped() {
+  const me = state.devices.find((d) => d.id === state.myHandle);
+  return groupedDevices().filter((g) => !g.members.some((m) => m.id === state.myHandle) &&
+    !(me && me.computer && g.computer === me.computer));
+}
 function renderDevices() {
   const list = $('#device-list');
   list.replaceChildren();
   const me = state.device;
-  const selfFromRoster = state.devices.find((d) => d.id === state.myHandle);
-  list.append(deviceCard(selfFromRoster || { id: state.myHandle, name: me.name, kind: me.kind }, true));
-  const others = state.devices.filter((d) => d.id !== state.myHandle);
+  const mine = groupedDevices().find((g) => g.members.some((m) => m.id === state.myHandle));
+  list.append(deviceCard(mine || { id: state.myHandle, name: me.name, kind: me.kind, agents: [] }, true));
+  const others = othersGrouped();
   for (const d of others) list.append(deviceCard(d, false));
   $('#devices-empty').hidden = others.length > 0;
 }
@@ -552,6 +581,7 @@ function deviceCard(d, self) {
     h('div', { class: 'device-main' },
       h('span', { class: 'device-name', text: d.name }),
       self ? h('span', { class: 'device-tag', text: 'This device' }) : null,
+      d.agents && d.agents.length > 1 ? h('span', { class: 'device-agents', text: d.agents.join(' · ') }) : null,
     ),
     h('div', { class: 'device-actions' },
       self
@@ -582,10 +612,9 @@ function startRename(card, d) {
     if (done) return;
     done = true;
     const v = input.value.trim().slice(0, 60);
-    if (v && v !== d.name) {
-      wsSend({ type: 'rename', name: v });
-      state.device.name = v; saveDevice(); updateSideMe();
-    }
+    // The hub decides the final name (it may add "(2)", or wait for the
+    // host's approval); the roster brings it back.
+    if (v && v !== d.name) wsSend({ type: 'rename', name: v });
     renderDevices();
   };
   input.addEventListener('keydown', (e) => {
@@ -621,7 +650,7 @@ function fillDest(sel, includePublic, includeLink) {
   sel.replaceChildren();
   if (includePublic) sel.append(h('option', { value: 'everyone', text: 'Everyone (public)' }));
   if (includeLink) sel.append(h('option', { value: 'link', text: 'Private link (anyone with link)' }));
-  const others = state.devices.filter((d) => d.id !== state.myHandle);
+  const others = othersGrouped();
   if (others.length) {
     const grp = h('optgroup', { label: 'Send to a device' });
     for (const d of others) grp.append(h('option', { value: d.id, text: d.name }));
@@ -670,6 +699,11 @@ function doSend() {
 }
 
 function uploadOne(file, opts) {
+  // Say so now, rather than after minutes of uploading.
+  if (state.maxUploadBytes && file.size > state.maxUploadBytes) {
+    toast(`“${file.name}” is too large — the limit on this hub is ${formatSize(state.maxUploadBytes)}`, 'danger');
+    return;
+  }
   const uploads = $('#uploads');
   const fill = h('div', { class: 'upload-fill' });
   const pct = h('div', { class: 'upload-pct', text: '0%' });
@@ -834,7 +868,8 @@ function connectWs() {
     state.everConnected = true;
     reconnectDelay = 1000;
     setOnline(true);
-    wsSend({ type: 'identify', deviceId: state.device.id, name: state.device.name, kind: state.device.kind, legacyId: state.device.legacyId });
+    wsSend({ type: 'identify', deviceId: state.device.id, name: state.device.name, kind: state.device.kind,
+      agent: browserName(), legacyId: state.device.legacyId });
   };
   ws.onclose = (ev) => {
     setOnline(false);
@@ -862,6 +897,7 @@ function connectWs() {
         addr.hidden = false;
       }
       state.announcement = payload.announcement || null;
+      state.maxUploadBytes = payload.maxUploadBytes || null;
       setDeviceCount(payload.clients);
       renderAnnounceCards();
       renderPublic();
@@ -906,6 +942,18 @@ function connectWs() {
       renderAnnounceCards();
     } else if (type === 'join-required') {
       showJoinGate();
+    } else if (type === 'approval-pending') {
+      showWaitGate(payload && payload.name);
+    } else if (type === 'approved') {
+      location.reload();
+    } else if (type === 'rename-pending') {
+      toast(`Asked the host to approve the name “${payload.wanted}”`, 'good');
+    } else if (type === 'rename-declined') {
+      toast('The host kept your current name', 'danger');
+    } else if (type === 'limits') {
+      state.maxUploadBytes = payload.maxUploadBytes || null;
+    } else if (type === 'requests-changed') {
+      if (state.isAdmin) toast('A device is waiting for you — open the Host console', 'good');
     } else if (type === 'blocked') {
       state.blocked = true;
       setOnline(false);
@@ -1041,6 +1089,14 @@ function initFoot() {
   });
 }
 
+// ---------- approval: waiting to be let in ----------
+function showWaitGate(name) {
+  $('#app-shell').hidden = true;
+  $('#join-gate').hidden = true;
+  $('#wait-gate').hidden = false;
+  $('#wait-name').textContent = name || state.device.name;
+}
+
 // ---------- private mode: joining ----------
 function showJoinGate() {
   if (state.joinRequired) return;
@@ -1099,7 +1155,7 @@ async function revealAdminNav() {
 async function loadInitial() {
   try {
     const filesRes = await api('/api/files');
-    if (filesRes.status === 401) return;
+    if (!filesRes.ok) return; // not joined, or waiting for the host
     const { files } = await filesRes.json();
     for (const f of files) state.publicFiles.set(f.token, f);
     renderPublic();

@@ -379,3 +379,9 @@ body {
 .join-side { flex: 1; min-width: 200px; }
 .join-code { font-size: 30px; font-weight: 700; letter-spacing: 4px; margin: 2px 0 6px; font-variant-numeric: tabular-nums; }
 .badge.host { color: var(--accent); border-color: rgba(109,139,255,.45); margin-left: 4px; text-transform: uppercase; letter-spacing: .04em; font-size: 10px; padding: 1px 6px; }
+.device-agents { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.limit-row { display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 9px 0; }
+.limit-row select { min-width: 150px; flex: none; }
+.size-pick { display: flex; gap: 8px; align-items: center; flex: none; }
+.custom-size { display: inline-flex; gap: 6px; align-items: center; }
+.custom-size[hidden] { display: none; }

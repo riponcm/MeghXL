@@ -525,6 +525,17 @@ function makeZip(names, { prefix = Buffer.alloc(0) } = {}) {
   return Buffer.concat([prefix, ...locals, cd, end]);
 }
 
+/**
+ * Pretend the uploads disk has exactly `freeBytes` free, so tests don't
+ * depend on whatever else is writing to this machine's disk.
+ */
+async function withFreeSpace(freeBytes, fn) {
+  const real = fs.promises.statfs;
+  fs.promises.statfs = async () => ({ bsize: 1024, blocks: 1e12, bavail: Math.floor(freeBytes / 1024) });
+  disk.invalidate();
+  try { return await fn(); } finally { fs.promises.statfs = real; disk.invalidate(); }
+}
+
 /** Start a real server + hub on a random port. */
 async function liveHub() {
   const server = tuneServer(http.createServer());
@@ -534,12 +545,15 @@ async function liveHub() {
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
   const sockets = [];
-  const connect = (id, name) => new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { 'X-Forwarded-For': '10.1.1.1' } });
+  let seq = 1;
+  // Each connection is its own device on the LAN, with its own address,
+  // unless a test passes one (several browsers on one computer).
+  const connect = (id, name, { ip = `10.1.1.${seq++}`, kind = 'desktop', agent } = {}) => new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { 'X-Forwarded-For': ip } });
     ws.inbox = [];
     ws.on('message', (d) => ws.inbox.push(JSON.parse(d)));
     ws.on('open', () => {
-      if (id) ws.send(JSON.stringify({ type: 'identify', deviceId: id, name, kind: 'desktop' }));
+      if (id) ws.send(JSON.stringify({ type: 'identify', deviceId: id, name, kind, agent }));
       setTimeout(() => resolve(ws), 120);
     });
     ws.on('error', reject);
@@ -882,19 +896,14 @@ test('disk images and web pages are labelled; archives it cannot read are refuse
 });
 
 test('uploads at the same time cannot overrun the disk reserve together', async () => {
-  const free = await disk.freeBytes();
-  if (free == null) return; // nothing to measure against on this machine
-  const saved = config.minFreeBytes;
-  config.minFreeBytes = free - 3 * 1024 * 1024; // leaves room for ~3 MB
-  disk.invalidate();
-  try {
+  // 3 MB above the reserve: room for one 2.5 MB file, not two.
+  await withFreeSpace(config.minFreeBytes + 3 * 1024 * 1024, async () => {
     const file = Buffer.alloc(2.5 * 1024 * 1024, 1);
     const send = (ip) => lan(request(app).post('/api/upload'), ip).field('visibility', 'private')
       .attach('file', file, { filename: 'big.bin' });
     const results = await Promise.all([send('10.5.5.1'), send('10.5.5.2')]);
-    const codes = results.map((r) => r.status).sort();
-    assert.deepEqual(codes, [200, 507]);
-  } finally { config.minFreeBytes = saved; disk.invalidate(); }
+    assert.deepEqual(results.map((r) => r.status).sort(), [200, 507]);
+  });
 });
 
 test('uploads are rate-limited per address (the host is not)', async () => {
@@ -991,6 +1000,170 @@ test('the page policy allows only this hub\'s own WebSocket', async () => {
   const csp = (await request(app).get('/').set('Host', 'meghxl.local:3000')).headers['content-security-policy'];
   assert.match(csp, /connect-src 'self' ws:\/\/meghxl\.local:3000 wss:\/\/meghxl\.local:3000;/);
   assert.doesNotMatch(csp, /ws: |wss:;/);
+});
+
+// ---------------------------------------------------------------------------
+// Host controls: limits, approvals, activity, one name per computer
+// ---------------------------------------------------------------------------
+
+const settle = (ms = 120) => new Promise((r) => setTimeout(r, ms));
+const lastOf = (ws, type) => ws.inbox.filter((m) => m.type === type).at(-1);
+
+test('limits: the host sets a largest-file size that binds other devices, not itself', async () => {
+  store.setSettings({ maxUploadMb: 1 });
+  try {
+    const file = Buffer.alloc(1.5 * 1024 * 1024, 1);
+    const lanUp = await lan(request(app).post('/api/upload')).field('visibility', 'private').attach('file', file, { filename: 'a.bin' });
+    assert.equal(lanUp.status, 413);
+    assert.match(lanUp.body.error, /1 MB/);
+    const hostUp = await request(app).post('/api/upload').field('visibility', 'private').attach('file', file, { filename: 'a.bin' });
+    assert.equal(hostUp.status, 200);
+  } finally { store.setSettings({ maxUploadMb: 0 }); }
+});
+
+test('limits: a total storage budget stops other devices once the hub is full', async () => {
+  store.setSettings({ storageBudgetMb: 1 }); // the suite has already stored more than 1 MB
+  try {
+    const r = await lan(request(app).post('/api/upload')).field('visibility', 'private').attach('file', Buffer.from('x'), { filename: 'x.txt' });
+    assert.equal(r.status, 507);
+    assert.match(r.body.error, /storage limit/);
+  } finally { store.setSettings({ storageBudgetMb: 0 }); }
+});
+
+test('limits: devices are told the limit when they connect, and when it changes', async () => {
+  store.setSettings({ maxUploadMb: 2 });
+  const live = await liveHub();
+  try {
+    const ws = await live.connect('limit-watcher-00000001', 'Watcher');
+    assert.equal(ws.inbox.find((m) => m.type === 'hello').payload.maxUploadBytes, 2 * 1024 * 1024);
+    const res = await request(`http://127.0.0.1:${live.port}`).post('/api/admin/settings').set('x-meghxl-request', '1').send({ maxUploadMb: 0 });
+    assert.equal(res.status, 200);
+    await settle();
+    assert.equal(lastOf(ws, 'limits').payload.maxUploadBytes, config.maxUploadBytes === Infinity ? null : config.maxUploadBytes);
+  } finally { await live.close(); store.setSettings({ maxUploadMb: 0 }); }
+});
+
+test('approve names: a rename waits for the host, then applies', async () => {
+  store.setSettings({ approveRenames: true });
+  const live = await liveHub();
+  try {
+    const ws = await live.connect('renamer-device-0000001', 'Mac · Safari');
+    ws.send(JSON.stringify({ type: 'rename', name: 'Boss' }));
+    await settle();
+    assert.equal(lastOf(ws, 'rename-pending').payload.wanted, 'Boss');
+    assert.equal(live.hub.rosterDetailed()[0].name, 'Mac · Safari', 'unchanged until approved');
+    const req = store.listRequests().find((r) => r.type === 'rename' && r.deviceId === 'renamer-device-0000001');
+    const ok = await request(`http://127.0.0.1:${live.port}`).post(`/api/admin/requests/${req.id}`).set('x-meghxl-request', '1').send({ accept: true });
+    assert.equal(ok.status, 200);
+    await settle();
+    assert.equal(live.hub.rosterDetailed()[0].name, 'Boss');
+  } finally { await live.close(); store.setSettings({ approveRenames: false }); }
+});
+
+test('approve names: a new device with a made-up name starts with a default and asks', async () => {
+  store.setSettings({ approveRenames: true });
+  const live = await liveHub();
+  try {
+    const ws = await live.connect('made-up-name-00000001', 'CEO Laptop', { ip: '10.2.2.2' });
+    assert.equal(lastOf(ws, 'welcome').payload.name, 'Computer');
+    assert.equal(lastOf(ws, 'rename-pending').payload.wanted, 'CEO Laptop');
+    const plain = await live.connect('default-name-00000001', 'Windows · Edge', { ip: '10.2.2.3' });
+    assert.equal(lastOf(plain, 'welcome').payload.name, 'Windows · Edge', "a browser's own default name needs no approval");
+  } finally { await live.close(); store.setSettings({ approveRenames: false }); }
+});
+
+test('approve devices: a new device waits, hears nothing, and gets in once approved', async () => {
+  const live = await liveHub();
+  const hub = request(`http://127.0.0.1:${live.port}`);
+  try {
+    const regular = await live.connect('regular-device-0000001', 'Regular');
+    await hub.post('/api/admin/settings').set('x-meghxl-request', '1').send({ approveDevices: true });
+    assert.ok(store.isApproved('regular-device-0000001'), 'devices already here are let in');
+
+    const guest = await live.connect('guest-device-000000001', 'Guest', { ip: '10.1.9.9' });
+    assert.ok(lastOf(guest, 'approval-pending'));
+    assert.ok(!live.hub.rosterDetailed().some((d) => d.name === 'Guest'), 'not on the board');
+    await hub.post('/api/notes').send({ text: 'for approved eyes' });
+    await settle();
+    assert.ok(regular.inbox.some((m) => m.type === 'note-added'));
+    assert.ok(!guest.inbox.some((m) => m.type === 'note-added'), 'a waiting device hears nothing');
+    const blocked = await hub.get('/api/files').set('X-Forwarded-For', '10.1.9.9').set('x-meghxl-device', 'guest-device-000000001');
+    assert.equal(blocked.status, 403);
+    assert.equal(blocked.body.pending, true);
+
+    const req = store.listRequests().find((r) => r.type === 'device' && r.deviceId === 'guest-device-000000001');
+    await hub.post(`/api/admin/requests/${req.id}`).set('x-meghxl-request', '1').send({ accept: true });
+    await settle();
+    assert.ok(lastOf(guest, 'approved'));
+    const allowed = await hub.get('/api/files').set('X-Forwarded-For', '10.1.9.9').set('x-meghxl-device', 'guest-device-000000001');
+    assert.equal(allowed.status, 200);
+
+    const intruder = await live.connect('intruder-device-000001', 'Intruder', { ip: '10.1.9.10' });
+    const req2 = store.listRequests().find((r) => r.deviceId === 'intruder-device-000001');
+    const closed = new Promise((r) => intruder.on('close', r));
+    await hub.post(`/api/admin/requests/${req2.id}`).set('x-meghxl-request', '1').send({ accept: false });
+    await closed;
+    assert.ok(store.isBlocked('intruder-device-000001', null), 'declining blocks');
+  } finally { await live.close(); store.setSettings({ approveDevices: false }); }
+});
+
+test('activity: the host can see what happened', async () => {
+  const r = await request(app).get('/api/admin/activity');
+  assert.equal(r.status, 200);
+  const types = new Set(r.body.activity.map((a) => a.type));
+  for (const t of ['device-waiting', 'device-approved', 'device-declined', 'rename-approved', 'setting']) {
+    assert.ok(types.has(t), `logged: ${t}`);
+  }
+  assert.equal((await lan(request(app).get('/api/admin/activity'))).status, 403, 'host only');
+});
+
+test('activity: a flood of wrong codes is one counted entry, not hundreds', async () => {
+  store.setSettings({ privateMode: true });
+  try {
+    const before = store.listActivity().length;
+    for (let i = 0; i < 4; i++) await lan(request(app).post('/api/join'), '10.61.0.1').send({ code: 'nope' + i });
+    const added = store.listActivity().slice(0, store.listActivity().length - before);
+    assert.equal(added.filter((a) => a.type === 'join-failed').length, 1);
+    assert.equal(added.find((a) => a.type === 'join-failed').count, 4);
+  } finally { store.setSettings({ privateMode: false }); }
+});
+
+test('one name per computer: browsers at one address share a name and receive together', async () => {
+  const live = await liveHub();
+  try {
+    const safari = await live.connect('imac-safari-0000000001', 'Mac · Safari', { ip: '10.8.8.8', agent: 'Safari' });
+    const chrome = await live.connect('imac-chrome-0000000001', 'Mac · Chrome', { ip: '10.8.8.8', agent: 'Chrome' });
+    const phone = await live.connect('someones-phone-0000001', 'iPhone · Safari', { ip: '10.8.8.9', kind: 'mobile' });
+    const roster = lastOf(phone, 'roster').payload.devices;
+    const [s, c] = ['Safari', 'Chrome'].map((a) => roster.find((d) => d.agent === a));
+    assert.ok(s.computer && s.computer === c.computer, 'grouped as one computer');
+    assert.ok(!JSON.stringify(roster).includes('10.8.8.8'), 'the address itself is never shown');
+
+    safari.send(JSON.stringify({ type: 'rename', name: "Ripon's iMac" }));
+    await settle();
+    const names = live.hub.rosterDetailed().filter((d) => d.computer === s.computer).map((d) => d.name);
+    assert.deepEqual(names, ["Ripon's iMac", "Ripon's iMac"], 'renaming one renames both');
+
+    await request(`http://127.0.0.1:${live.port}`).post('/api/dm').set('X-Forwarded-For', '10.8.8.9')
+      .set('x-meghxl-device', 'someones-phone-0000001').send({ to: s.id, text: 'to the iMac' });
+    await settle();
+    assert.ok(safari.inbox.some((m) => m.type === 'dm') && chrome.inbox.some((m) => m.type === 'dm'), 'both browsers get it');
+
+    // A new browser on that computer starts with its name.
+    const firefox = await live.connect('imac-firefox-000000001', 'Mac · Firefox', { ip: '10.8.8.8', agent: 'Firefox' });
+    assert.equal(lastOf(firefox, 'welcome').payload.name, "Ripon's iMac");
+  } finally { await live.close(); }
+});
+
+test('one name per computer: not for phones, and not when many devices share an address', async () => {
+  const live = await liveHub();
+  try {
+    const a = await live.connect('nat-device-a-000000001', 'A', { ip: '10.9.0.1' });
+    for (let i = 0; i < 4; i++) await live.connect(`nat-device-x-00000000${i}`, `X${i}`, { ip: '10.9.0.1' });
+    await settle();
+    const roster = lastOf(a, 'roster').payload.devices;
+    assert.ok(roster.every((d) => !d.computer), 'five desktops at one address look like a shared router: no grouping');
+  } finally { await live.close(); }
 });
 
 test.after(() => {

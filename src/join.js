@@ -76,6 +76,7 @@ function noteFailure(j) {
     j.failures = 0;
     j.autoRotatedAt = Date.now();
     console.warn('[join] too many wrong codes — the join code was changed. The host console shows the new one.');
+    require('./activity').log('code-rotated', `${MAX_FAILURES_PER_CODE} wrong join codes — the code was changed automatically`);
   }
   store.setJoin(j);
 }
@@ -141,4 +142,4 @@ function gate(isAdmin) {
   };
 }
 
-module.exports = { COOKIE, isEnabled, check, issueSession, hasSession, rotate, current, gate };
+module.exports = { COOKIE, isEnabled, check, issueSession, hasSession, rotate, current, gate, isOpenPath };

@@ -36,6 +36,9 @@ const ICONS = {
   file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
   alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
   lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  pencil: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
 };
 function icon(name, size = 18) {
   const t = document.createElement('template');
@@ -181,7 +184,7 @@ function deviceRow(d, first) {
     h('div', { class: 'adm-ic' }, icon(kindIcon(d.kind), 20)),
     h('div', { class: 'adm-body' },
       h('div', { class: 'adm-name', text: d.name }),
-      h('div', { class: 'adm-meta', text: `${d.ip || 'unknown'}${isLocal(d.ip) ? ' · this computer' : ''} · joined ${fmtAge(d.connectedAt)}` }),
+      h('div', { class: 'adm-meta', text: `${d.agent ? d.agent + ' · ' : ''}${d.ip || 'unknown'}${isLocal(d.ip) ? ' · this computer' : ''} · joined ${fmtAge(d.connectedAt)}` }),
     ),
     h('div', { class: 'adm-actions' },
       h('button', { class: 'btn small ghost', type: 'button', title: 'Send a file', onclick: () => pickAndSend(d) }, icon('send', 15), 'Send'),
@@ -204,7 +207,7 @@ function blockedRow(b, first) {
 
 // ---------- sections ----------
 function renderSection() {
-  const fn = { overview: renderOverview, devices: renderDevices, files: renderFiles, announce: renderAnnounce, settings: renderSettings }[state.section];
+  const fn = { overview: renderOverview, devices: renderDevices, files: renderFiles, announce: renderAnnounce, activity: renderActivity, settings: renderSettings }[state.section];
   if (fn) fn();
 }
 
@@ -214,6 +217,7 @@ function renderOverview() {
   const online = d.devices;
   main.replaceChildren(
     ...header('Overview', 'Running on your local network'),
+    requestsPanel(d),
     h('div', { class: 'stat-grid' },
       stat('Devices online', String(d.stats.devicesOnline)),
       stat('Files shared', String(d.stats.files)),
@@ -234,6 +238,7 @@ function renderDevices() {
   const main = $('#admin-main');
   const children = [
     ...header('Devices', 'Everyone connected to this server'),
+    requestsPanel(d),
     panel('Connected', `${d.devices.length} online`,
       d.devices.length ? d.devices.map((dev, i) => deviceRow(dev, i === 0)) : [emptyRow('No devices connected.')]
     ),
@@ -340,6 +345,17 @@ function renderSettings() {
 
     privatePanel(d),
 
+    panel('Approvals', 'For when you want the final say', [
+      toggleRow('Approve new devices', "A device that hasn't been here before waits on a \"waiting for the host\" screen until you let it in (Overview → Waiting for you). Devices already connected when you turn this on are let in automatically. Declining blocks the device.",
+        !!d.settings.approveDevices, (on) => saveSetting({ approveDevices: on }, on ? 'New devices will wait for you' : 'New devices join straight away')),
+      toggleRow('Approve name changes', 'When a device renames itself, the new name waits for your tick. A brand-new device that arrives with a made-up name waits too, so a fresh device is no way around it.',
+        !!d.settings.approveRenames, (on) => saveSetting({ approveRenames: on }, on ? 'Name changes will wait for you' : 'Devices can rename themselves')),
+      toggleRow('One name per computer', "Safari, Chrome and Firefox on the same computer are listed as one device with one name, and a file sent to it reaches all of them. Works by address, so it switches itself off where more than 4 computers share one (a VPN or a shared router). Turn it off if several people use one address.",
+        d.settings.groupBrowsers !== false, (on) => saveSetting({ groupBrowsers: on }, on ? 'Browsers on one computer share a name' : 'Every browser is listed separately')),
+    ]),
+
+    limitsPanel(d),
+
     panel('Programs', 'Apps, installers and scripts shared on this hub', [
       toggleRow('Refuse programs', 'Uploads that are programs — .exe, .dmg, .pkg, scripts, or a program renamed to look like a photo or PDF — are rejected. Off: they are allowed but clearly labelled, and everyone is asked before saving one. You can always share them from this computer.',
         !!d.settings.blockPrograms, (on) => saveSetting({ blockPrograms: on }, on ? 'Programs will be refused' : 'Programs allowed, with a warning')),
@@ -428,6 +444,92 @@ function saveSetting(body, okMessage) {
   return api('/api/admin/settings', { method: 'POST', body })
     .then(() => { toast(okMessage || 'Saved', 'good'); refresh(); })
     .catch((e) => toast(e.message, 'danger'));
+}
+
+// ---------- requests waiting for the host ----------
+function requestsPanel(d) {
+  const reqs = d.requests || [];
+  if (!reqs.length) return document.createDocumentFragment(); // nothing to show
+  const rows = reqs.map((r, i) => h('div', { class: 'adm-row' + (i === 0 ? ' first' : '') },
+    h('div', { class: 'adm-ic', style: 'color:var(--accent)' }, icon(r.type === 'rename' ? 'pencil' : kindIcon(r.kind), 20)),
+    h('div', { class: 'adm-body' },
+      r.type === 'rename'
+        ? h('div', { class: 'adm-name' }, `“${r.from}” wants to be called `, h('b', { text: `“${r.wanted}”` }))
+        : h('div', { class: 'adm-name', text: `“${r.name}”${r.agent ? ' (' + r.agent + ')' : ''} wants to join` }),
+      h('div', { class: 'adm-meta', text: `${r.ip || ''} · ${fmtAge(r.at)}` }),
+    ),
+    h('div', { class: 'adm-actions' },
+      h('button', { class: 'btn small', type: 'button', title: 'Approve', onclick: () => decide(r, true) }, icon('check', 15), r.type === 'rename' ? 'Allow' : 'Let in'),
+      h('button', { class: 'btn small ghost danger', type: 'button', title: r.type === 'rename' ? 'Keep the current name' : 'Turn away and block',
+        onclick: () => decide(r, false) }, icon('x', 15), r.type === 'rename' ? 'Keep old name' : 'Decline'),
+    ),
+  ));
+  return panel('Waiting for you', `${reqs.length}`, rows);
+}
+function decide(r, accept) {
+  if (!accept && r.type === 'device' && !confirmAction(`Turn away “${r.name}”? It will be blocked.`)) return;
+  api(`/api/admin/requests/${encodeURIComponent(r.id)}`, { method: 'POST', body: { accept } })
+    .then(() => { toast(accept ? 'Done' : 'Declined', accept ? 'good' : ''); refresh(); })
+    .catch((e) => toast(e.message, 'danger'));
+}
+
+// ---------- upload limits ----------
+const SIZE_CHOICES = [[0, 'No limit'], [100, '100 MB'], [1024, '1 GB'], [5 * 1024, '5 GB'], [10 * 1024, '10 GB'], [50 * 1024, '50 GB']];
+// A preset list plus "Custom", which opens a GB field inline (window.prompt
+// isn't available inside the desktop app).
+function sizeSelect(value, onChange) {
+  const sel = h('select', { class: 'adm-input' });
+  const known = SIZE_CHOICES.some(([mb]) => mb === (value || 0));
+  for (const [mb, label] of SIZE_CHOICES) sel.append(h('option', { value: String(mb), text: label }));
+  sel.append(h('option', { value: 'custom', text: known ? 'Custom…' : `Custom: ${fmtSize(value * 1024 * 1024)}` }));
+  sel.value = known ? String(value || 0) : 'custom';
+  const gb = h('input', { class: 'adm-input', type: 'number', min: '0.1', step: '0.1', placeholder: 'GB', style: 'width:80px',
+    value: known ? '' : String(+(value / 1024).toFixed(2)) });
+  const save = h('button', { class: 'btn small ghost', type: 'button', text: 'Save' });
+  const custom = h('span', { class: 'custom-size' }, gb, save);
+  custom.hidden = true;
+  save.addEventListener('click', () => {
+    const mb = Math.round(parseFloat(gb.value) * 1024);
+    if (Number.isFinite(mb) && mb > 0) { gb.blur(); onChange(mb); } else toast('Enter a size in GB', 'danger');
+  });
+  sel.addEventListener('change', () => {
+    if (sel.value === 'custom') { custom.hidden = false; gb.focus(); return; }
+    sel.blur();
+    onChange(Number(sel.value));
+  });
+  return h('span', { class: 'size-pick' }, sel, custom);
+}
+function limitsPanel(d) {
+  const s = d.server;
+  const used = fmtSize(s.storedBytes || 0);
+  return panel('Upload limits', 'Apply to other devices — this computer can share anything', [
+    h('div', { class: 'limit-row' },
+      h('div', {}, h('div', { class: 'toggle-label', text: 'Largest file' }),
+        h('div', { class: 'adm-meta', text: 'A phone sees the limit before it starts, instead of failing after a long upload.' + (s.maxUploadMb ? ` MAX_UPLOAD_MB caps everyone at ${fmtSize(s.maxUploadMb * 1024 * 1024)}.` : '') })),
+      sizeSelect(d.settings.maxUploadMb || 0, (mb) => saveSetting({ maxUploadMb: mb }, mb ? `Largest file: ${fmtSize(mb * 1024 * 1024)}` : 'No file size limit'))),
+    h('div', { class: 'limit-row' },
+      h('div', {}, h('div', { class: 'toggle-label', text: 'Total storage' }),
+        h('div', { class: 'adm-meta', text: `Stop accepting files once the hub holds this much. In use now: ${used}. Expired and deleted files free space.` })),
+      sizeSelect(d.settings.storageBudgetMb || 0, (mb) => saveSetting({ storageBudgetMb: mb }, mb ? `Storage limit: ${fmtSize(mb * 1024 * 1024)}` : 'No storage limit'))),
+  ]);
+}
+
+// ---------- activity ----------
+async function renderActivity() {
+  const main = $('#admin-main');
+  let list = [];
+  try { list = (await api('/api/admin/activity')).activity; } catch (e) { return toast(e.message, 'danger'); }
+  if (state.section !== 'activity') return;
+  main.replaceChildren(
+    ...header('Activity', 'What happened on this hub — newest first'),
+    panel('Recent', `${list.length}`, list.length
+      ? list.map((a, i) => h('div', { class: 'adm-row' + (i === 0 ? ' first' : '') },
+          h('div', { class: 'adm-body' },
+            h('div', { class: 'adm-name', style: 'white-space:normal', text: a.text + (a.count > 1 ? `  ×${a.count}` : '') }),
+            h('div', { class: 'adm-meta', text: `${fmtAge(a.at)}${a.ip ? ' · ' + a.ip : ''}` }),
+          )))
+      : [emptyRow('Nothing yet.')]),
+  );
 }
 
 // ---------- small builders ----------

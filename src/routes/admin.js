@@ -7,6 +7,8 @@ const store = require('../store');
 const { getShareBase } = require('../baseUrl');
 const { isAdmin, requireAdmin } = require('../admin-auth');
 const join = require('../join');
+const disk = require('../disk');
+const activity = require('../activity');
 
 function sanitize(s, max) {
   let out = '';
@@ -44,6 +46,7 @@ module.exports = function createAdminRouter({ hub, files }) {
         mdnsName: config.mdnsEnabled ? `${config.mdnsName}.local` : null,
         maxUploadMb: config.maxUploadMb,
         minFreeMb: config.minFreeMb,
+        storedBytes: disk.storedBytes(),
         uptimeSec: Math.round(process.uptime()),
         shareBase: getShareBase(),
       },
@@ -53,6 +56,7 @@ module.exports = function createAdminRouter({ hub, files }) {
         storageBytes: live.reduce((sum, f) => sum + (f.size || 0), 0),
       },
       devices: hub.rosterDetailed(),
+      requests: store.listRequests(),
       blocked: store.listBlocked(),
       announcements: store.listAnnouncements(),
       settings: store.getSettings(),
@@ -88,13 +92,32 @@ module.exports = function createAdminRouter({ hub, files }) {
     });
     hub.kickDevice(deviceId);
     hub.broadcastRoster();
+    store.dropRequests(deviceId);
+    activity.log('blocked', `Blocked “${(dev && dev.name) || 'a device'}”`, { ip: (dev && dev.ip) || null });
     res.json({ blocked: store.listBlocked() });
   });
 
   // POST /api/admin/unblock { deviceId }
   router.post('/api/admin/unblock', requireAdmin, (req, res) => {
-    store.removeBlock(sanitize(req.body && req.body.deviceId, 64));
+    const id = sanitize(req.body && req.body.deviceId, 64);
+    const entry = store.listBlocked().find((b) => b.deviceId === id);
+    store.removeBlock(id);
+    if (entry) activity.log('unblocked', `Unblocked “${entry.name || 'a device'}”`);
     res.json({ blocked: store.listBlocked() });
+  });
+
+  // POST /api/admin/requests/:id { accept } — approve or decline a device or
+  // a name change that is waiting for the host.
+  router.post('/api/admin/requests/:id', requireAdmin, (req, res) => {
+    const accept = !!(req.body && req.body.accept === true);
+    if (!hub.decide(String(req.params.id), accept)) return res.status(404).json({ error: 'That request is gone.' });
+    res.json({ requests: store.listRequests() });
+  });
+
+  // GET /api/admin/activity — what happened on the hub, newest first.
+  router.get('/api/admin/activity', requireAdmin, (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ activity: store.listActivity() });
   });
 
   // GET /api/admin/files — every file (public, private, direct)
@@ -146,16 +169,39 @@ module.exports = function createAdminRouter({ hub, files }) {
     const exp = parseInt(body.defaultExpiryMinutes, 10);
     if (Number.isFinite(exp) && exp >= 0) partial.defaultExpiryMinutes = Math.min(exp, 7 * 24 * 60);
     if (body.linkHost === 'ip' || body.linkHost === 'friendly') partial.linkHost = body.linkHost;
-    if (typeof body.blockPrograms === 'boolean') partial.blockPrograms = body.blockPrograms;
-    const turningPrivate = body.privateMode === true && !join.isEnabled();
-    if (typeof body.privateMode === 'boolean') partial.privateMode = body.privateMode;
+    for (const flag of ['blockPrograms', 'privateMode', 'approveRenames', 'approveDevices', 'groupBrowsers']) {
+      if (typeof body[flag] === 'boolean') partial[flag] = body[flag];
+    }
+    // Upload limits, in MB; 0 means no limit.
+    for (const field of ['maxUploadMb', 'storageBudgetMb']) {
+      const n = parseInt(body[field], 10);
+      if (Number.isFinite(n) && n >= 0) partial[field] = Math.min(n, 1024 * 1024 * 1024);
+    }
+    const before = { ...store.getSettings() };
     const settings = store.setSettings(partial);
+    const changed = (k) => k in partial && partial[k] !== before[k];
+
     // Devices already on the board without having joined are sent to the join
     // screen; the ones that joined earlier (and the host) stay.
-    if (turningPrivate) {
+    if (changed('privateMode') && settings.privateMode) {
       join.current();
       hub.kickUnjoined((ws) => ws.joinedAtConnect);
     }
+    // Turning approvals on doesn't lock out whoever is already here.
+    if (changed('approveDevices') && settings.approveDevices) hub.approveEveryoneOnline();
+    if (changed('maxUploadMb') || changed('storageBudgetMb')) hub.pushLimits();
+    if (changed('groupBrowsers')) hub.broadcastRoster();
+
+    const words = {
+      privateMode: ['Private mode on', 'Private mode off'],
+      blockPrograms: ['Programs are refused', 'Programs are allowed (with a warning)'],
+      approveRenames: ['Name changes need approval', 'Name changes no longer need approval'],
+      approveDevices: ['New devices need approval', 'New devices no longer need approval'],
+      groupBrowsers: ['Browsers on one computer share a name', 'Browsers on one computer are listed separately'],
+    };
+    for (const [k, [on, off]] of Object.entries(words)) if (changed(k)) activity.log('setting', settings[k] ? on : off);
+    if (changed('maxUploadMb')) activity.log('setting', settings.maxUploadMb ? `Largest file set to ${settings.maxUploadMb} MB` : 'Largest file: no limit');
+    if (changed('storageBudgetMb')) activity.log('setting', settings.storageBudgetMb ? `Storage limit set to ${settings.storageBudgetMb} MB` : 'Storage limit: none');
     res.json({ settings });
   });
 
@@ -171,6 +217,7 @@ module.exports = function createAdminRouter({ hub, files }) {
   router.post('/api/admin/join/rotate', requireAdmin, (req, res) => {
     const j = join.rotate();
     if (join.isEnabled()) hub.kickUnjoined(() => false);
+    activity.log('code-rotated', 'New join code — every device that had joined must join again');
     res.json({ code: j.code, secret: j.secret, joined: 0 });
   });
 

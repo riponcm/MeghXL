@@ -21,6 +21,10 @@ const IP_BLOCK_TTL_MS = 24 * 60 * 60 * 1000;
 const dict = (src) => Object.assign(Object.create(null), src || {});
 const has = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
 
+const MAX_REQUESTS = 100;
+const MAX_ACTIVITY = 300;
+const MAX_COMPUTER_NAMES = 500;
+
 const empty = () => ({
   files: dict(),
   notes: [],
@@ -31,6 +35,10 @@ const empty = () => ({
   settings: {},
   adminKey: null,
   join: null,
+  approved: dict(), // device id -> approved at (when the host approves devices)
+  requests: [], // waiting for the host: { id, type: 'device'|'rename', deviceId, … }
+  activity: [], // newest first
+  computerNames: dict(), // address -> { name, at }: one name per computer
 });
 
 let state = empty();
@@ -65,6 +73,10 @@ function load() {
       settings: obj(parsed && parsed.settings) || {},
       adminKey: parsed && typeof parsed.adminKey === 'string' ? parsed.adminKey : null,
       join: obj(parsed && parsed.join),
+      approved: dict(obj(parsed && parsed.approved)),
+      requests: parsed && Array.isArray(parsed.requests) ? parsed.requests : [],
+      activity: parsed && Array.isArray(parsed.activity) ? parsed.activity : [],
+      computerNames: dict(obj(parsed && parsed.computerNames)),
     };
     pruneDeviceNames();
   } catch (err) {
@@ -291,6 +303,60 @@ function setAdminKey(k) {
   state.adminKey = k;
   persist();
 }
+// ---- approvals, requests, activity, computer names -------------------------
+
+function isApproved(id) {
+  return !!id && has(state.approved, id);
+}
+function approve(id) {
+  if (!id || has(state.approved, id)) return;
+  state.approved[id] = now();
+  persist();
+}
+function listRequests() {
+  return state.requests;
+}
+/** Add a request, replacing any earlier one of the same type for the device. */
+function addRequest(r) {
+  state.requests = state.requests.filter((x) => !(x.type === r.type && x.deviceId === r.deviceId));
+  state.requests.unshift(r);
+  if (state.requests.length > MAX_REQUESTS) state.requests.length = MAX_REQUESTS;
+  persist();
+  return r;
+}
+function takeRequest(id) {
+  const i = state.requests.findIndex((r) => r.id === id);
+  if (i === -1) return null;
+  const [r] = state.requests.splice(i, 1);
+  persist();
+  return r;
+}
+function dropRequests(deviceId) {
+  const before = state.requests.length;
+  state.requests = state.requests.filter((r) => r.deviceId !== deviceId);
+  if (state.requests.length !== before) persist();
+}
+function addActivity(entry) {
+  state.activity.unshift(entry);
+  if (state.activity.length > MAX_ACTIVITY) state.activity.length = MAX_ACTIVITY;
+  persist();
+}
+function listActivity() {
+  return state.activity;
+}
+function getComputerName(key) {
+  return has(state.computerNames, key) ? state.computerNames[key].name : null;
+}
+function setComputerName(key, name) {
+  state.computerNames[key] = { name, at: now() };
+  const keys = Object.keys(state.computerNames);
+  if (keys.length > MAX_COMPUTER_NAMES) {
+    keys.sort((a, b) => state.computerNames[a].at - state.computerNames[b].at);
+    for (const k of keys.slice(0, keys.length - MAX_COMPUTER_NAMES)) delete state.computerNames[k];
+  }
+  persist();
+}
+
 function getJoin() {
   return state.join;
 }
@@ -338,6 +404,16 @@ module.exports = {
   setAdminKey,
   getJoin,
   setJoin,
+  isApproved,
+  approve,
+  listRequests,
+  addRequest,
+  takeRequest,
+  dropRequests,
+  addActivity,
+  listActivity,
+  getComputerName,
+  setComputerName,
   listAllFiles,
   clearAllFiles,
 };
