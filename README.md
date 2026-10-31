@@ -77,8 +77,12 @@ one machine has to be on, and in exchange nobody else installs anything.
 - **Auto-expiry** — make any private link self-destruct after a set time.
 - **Shared clipboard** — a text box whose notes sync live across all devices, for
   pasting a URL, a code, or a Wi-Fi password between machines.
-- **Any size** — uploads stream straight to disk (no memory blowup) and downloads
-  support HTTP Range, so they are resumable.
+- **Any size, and interruptions are fine** — uploads go in pieces and carry on
+  where they stopped if a phone locks its screen or the Wi-Fi drops; downloads
+  support HTTP Range, so they resume too.
+- **"Can phones reach this computer?"** — a one-tap connection test in the host
+  console that tells you what to change (Windows network set to Public,
+  firewall) when a phone can't connect.
 - **Friendly name (mDNS)** — reachable at `http://meghxl.local:3000`; bookmark it
   once per device and it is one click forever.
 - **LAN-only by design** — MeghXL never exposes itself to the internet. For

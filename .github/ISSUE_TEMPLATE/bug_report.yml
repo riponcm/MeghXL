@@ -7,6 +7,11 @@ body:
       value: |
         Thanks for reporting. Please don't use this form for security issues —
         see [SECURITY.md](https://github.com/riponcm/MeghXL/blob/main/SECURITY.md).
+
+        **A phone or computer can't reach MeghXL?** Most of the time the host
+        computer is blocking it. Before filing, open the host console →
+        **Settings → Can phones reach this computer? → Start test** — it checks
+        this computer's settings and tells you what to change.
   - type: textarea
     id: what
     attributes:
@@ -22,6 +27,14 @@ body:
         2. On the other device, open…
         3. …
     validations: { required: true }
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostic report
+      description: >
+        Host console → Settings → Help → **Copy report**, then paste here. It
+        has the version, system and settings — no addresses, names or files.
+      render: text
   - type: dropdown
     id: how
     attributes:
@@ -33,21 +46,38 @@ body:
         - From source (npm start)
       default: 0
     validations: { required: true }
-  - type: input
-    id: version
+  - type: dropdown
+    id: network
     attributes:
-      label: MeghXL version
-      description: Shown on the About page, or `npm run start` output.
-      placeholder: "1.0.0"
-    validations: { required: true }
+      label: What kind of network?
+      description: Many connection problems come from the network, not MeghXL.
+      options:
+        - Home Wi-Fi
+        - Office or school network
+        - Guest Wi-Fi / hotel / café
+        - Phone hotspot
+        - The host is on a cable, the other device on Wi-Fi
+        - A VPN is on (on either device)
+        - Not sure
+  - type: dropdown
+    id: reach
+    attributes:
+      label: Did the connection test pass?
+      options:
+        - "Yes"
+        - "No — the phone couldn't open the test page"
+        - Didn't run it
+        - Not a connection problem
   - type: input
     id: devices
     attributes:
       label: Which devices were involved?
-      placeholder: "Host: Mac mini (Intel). Other device: Windows 11, Chrome."
+      placeholder: "Host: Mac mini (Intel). Other device: iPhone 15, Safari."
   - type: textarea
     id: logs
     attributes:
       label: Any errors?
-      description: Terminal output, or the browser console (F12 → Console).
+      description: >
+        What the app or page said, terminal output, or the browser console
+        (F12 → Console). Please remove any IP addresses you'd rather not share.
       render: shell

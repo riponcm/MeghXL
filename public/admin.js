@@ -222,6 +222,10 @@ function renderOverview() {
   main.replaceChildren(
     ...header('Overview', 'Running on your local network'),
     impostorPanel(d),
+    ...(d.hostWarnings || []).filter((w) => w.level === 'block').map((w) =>
+      h('div', { class: 'panel alert-panel' },
+        h('div', { class: 'panel-h' }, h('h2', {}, icon('alert', 16), ' Devices may not be able to reach this computer')),
+        h('p', { class: 'adm-meta', style: 'margin:6px 0', text: `${w.text} ${w.fix}` }))),
     requestsPanel(d),
     h('div', { class: 'stat-grid' },
       stat('Devices online', String(d.stats.devicesOnline)),
@@ -350,6 +354,8 @@ function renderSettings() {
 
     privatePanel(d),
 
+    reachPanel(),
+
     hostPanel(d),
 
     panel('Approvals', 'For when you want the final say', [
@@ -377,6 +383,8 @@ function renderSettings() {
       [h('div', { class: 'adm-meta', text: 'This is the host computer — every browser on it has admin access. All other devices on the network see only the normal dashboard. To make a different PC admin, set ADMIN_IP (or ADMIN_KEY for remote access).' })]),
 
     takeOverPanel(),
+
+    diagnosticsPanel(),
 
     panel('Danger zone', null,
       [h('div', { style: 'display:flex;gap:8px;align-items:center;justify-content:space-between' },
@@ -453,6 +461,94 @@ function saveSetting(body, okMessage) {
   return api('/api/admin/settings', { method: 'POST', body })
     .then(() => { toast(okMessage || 'Saved', 'good'); refresh(); })
     .catch((e) => toast(e.message, 'danger'));
+}
+
+// ---------- can phones reach this computer? ----------
+// A phone scans a test code; the page it opens tells this console it got
+// through. If none does, list what usually blocks it — starting with settings
+// on this computer, which the server checks for itself.
+let reach = null; // { token, url, startedAt, reached, hits, warnings, otherCauses }
+function reachPanel() {
+  const box = h('div', {});
+  const paint = () => {
+    const rows = [];
+    if (!reach) {
+      rows.push(h('div', { class: 'limit-row' },
+        h('div', {},
+          h('div', { class: 'toggle-label', text: 'Test the connection' }),
+          h('div', { class: 'adm-meta', text: "If a phone can't open MeghXL, run this: scan the test code with the phone. If it doesn't get through, you'll see what to change." })),
+        h('button', { class: 'btn small ghost', type: 'button', onclick: startReach }, 'Start test')));
+    } else {
+      const img = h('img', { class: 'join-qr', alt: 'Test QR code', width: '168', height: '168', src: reach.qr || null });
+      if (!reach.qr) {
+        const headers = state.key ? { 'x-admin-key': state.key } : {};
+        fetch(`/api/qr?text=${encodeURIComponent(reach.url)}`, { headers, cache: 'no-store' })
+          .then((r) => r.blob()).then((b) => { if (reach) { reach.qr = URL.createObjectURL(b); img.src = reach.qr; } }).catch(() => {});
+      }
+      const waited = Date.now() - reach.startedAt;
+      let verdict;
+      if (reach.reached) {
+        const ua = (reach.hits[0] && reach.hits[0].agent) || '';
+        const what = /iPhone|iPad/.test(ua) ? 'an iPhone or iPad' : /Android/.test(ua) ? 'an Android device' : 'a device';
+        verdict = h('div', { class: 'reach-ok', text: `✓ Reached from ${what}. Devices on this network can connect.` });
+      } else if (waited < 60000) {
+        verdict = h('div', { class: 'adm-meta', text: 'Waiting for a phone to open the test page…' });
+      } else {
+        verdict = h('div', {},
+          h('div', { class: 'reach-bad', text: 'No device has reached this computer yet.' }),
+          h('div', { class: 'adm-meta', style: 'margin-top:6px', text: 'Things that usually block it:' }),
+          h('ul', { class: 'reach-causes' },
+            ...(reach.warnings || []).map((w) => h('li', {}, h('b', { text: w.text }), ' ', w.fix)),
+            ...(reach.otherCauses || []).map((c) => h('li', { text: c }))));
+      }
+      rows.push(h('div', { class: 'join-box' }, img,
+        h('div', { class: 'join-side' },
+          h('div', { class: 'toggle-label', text: 'Scan with a phone on the same Wi-Fi' }),
+          h('div', { class: 'adm-meta', style: 'margin:4px 0 10px', text: 'The code opens a test page on this computer by its IP address.' }),
+          verdict,
+          h('button', { class: 'btn small ghost', type: 'button', style: 'margin-top:10px', onclick: () => { reach = null; renderSection(); } }, 'Done'))));
+    }
+    // Settings here that block devices are worth saying up front.
+    const blocking = ((reach && reach.warnings) || (state.data && state.data.hostWarnings) || []).filter((w) => w.level === 'block');
+    for (const w of blocking) {
+      rows.unshift(h('div', { class: 'reach-warning' }, h('b', { text: w.text }), h('div', { class: 'adm-meta', text: w.fix })));
+    }
+    box.replaceChildren(...rows);
+  };
+  paint();
+  return panel('Can phones reach this computer?', null, [box]);
+}
+function startReach() {
+  api('/api/admin/reach', { method: 'POST' })
+    .then((r) => { reach = { ...r, startedAt: Date.now(), reached: false }; renderSection(); pollReach(r.token); })
+    .catch((e) => toast(e.message, 'danger'));
+}
+function pollReach(token) {
+  if (!reach || reach.token !== token) return;
+  api(`/api/admin/reach/${encodeURIComponent(token)}`).then((r) => {
+    if (!reach || reach.token !== token) return;
+    const changed = r.reached !== reach.reached || (Date.now() - reach.startedAt > 60000 && !reach.shownCauses);
+    Object.assign(reach, r);
+    if (Date.now() - reach.startedAt > 60000) reach.shownCauses = true;
+    if (changed && state.section === 'settings') renderSection();
+    if (!r.reached && Date.now() - reach.startedAt < 10 * 60 * 1000) setTimeout(() => pollReach(token), 2000);
+  }).catch(() => {});
+}
+
+// ---------- diagnostics ----------
+function diagnosticsPanel() {
+  const copyReport = () => api('/api/admin/diagnostics')
+    .then((r) => copy(r.text))
+    .catch((e) => toast(e.message, 'danger'));
+  return panel('Help', null, [
+    h('div', { class: 'limit-row' },
+      h('div', {},
+        h('div', { class: 'toggle-label', text: 'Diagnostic report' }),
+        h('div', { class: 'adm-meta', text: 'Version, system, settings and the connection test result — no addresses, names or files. Paste it into a bug report.' })),
+      h('div', { style: 'display:flex;gap:8px;flex:none' },
+        h('button', { class: 'btn small ghost', type: 'button', onclick: copyReport }, 'Copy report'),
+        h('a', { class: 'btn small ghost', href: 'https://github.com/riponcm/MeghXL/issues/new?template=bug_report.yml', target: '_blank', rel: 'noopener' }, 'Report a problem'))),
+  ]);
 }
 
 // ---------- the host role ----------

@@ -9,6 +9,7 @@ const { isAdmin, requireAdmin } = require('../admin-auth');
 const join = require('../join');
 const disk = require('../disk');
 const activity = require('../activity');
+const { hostWarnings } = require('../network-check');
 
 function sanitize(s, max) {
   let out = '';
@@ -36,7 +37,7 @@ module.exports = function createAdminRouter({ hub, files }) {
   });
 
   // GET /api/admin/state — everything the console renders
-  router.get('/api/admin/state', requireAdmin, (req, res) => {
+  router.get('/api/admin/state', requireAdmin, async (req, res) => {
     const live = store.listAllFiles().filter((f) => !store.isExpired(f) && !f.consumed);
     res.json({
       server: {
@@ -58,6 +59,8 @@ module.exports = function createAdminRouter({ hub, files }) {
       devices: hub.rosterDetailed(),
       requests: store.listRequests(),
       impostors: hub.impostors ? hub.impostors() : [],
+      // Settings on this computer that stop devices reaching it (cached).
+      hostWarnings: await hostWarnings(),
       blocked: store.listBlocked(),
       announcements: store.listAnnouncements(),
       settings: store.getSettings(),

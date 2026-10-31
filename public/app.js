@@ -298,8 +298,23 @@ function bumpPrivate() {
   if (state.view !== 'private') { state.unseenPrivate++; updatePrivateBadge(); }
 }
 
+// ---------- the host's fingerprint ----------
+// The host proves who it is with a key; the desktop app checks it for you. A
+// browser can't, over plain http:// — so the fingerprint is shown where people
+// join, to compare with the host's own screen, and we say so plainly.
+async function loadHostFingerprint() {
+  try {
+    const id = await (await fetch('/api/host/identity', { cache: 'no-store' })).json();
+    state.hostFingerprint = id.fingerprint || null;
+  } catch { state.hostFingerprint = null; }
+  document.querySelectorAll('[data-host-fp]').forEach((el) => {
+    el.textContent = state.hostFingerprint ? `Host fingerprint ${state.hostFingerprint} — it should match the host computer's screen.` : '';
+    el.hidden = !state.hostFingerprint;
+  });
+}
+
 // ---------- modal ----------
-function showQrModal(title, url) {
+function showQrModal(title, url, { fingerprint = false } = {}) {
   $('#modal-title').textContent = title;
   $('#modal-qr').src = qrSrc(url);
   // The link stays hidden until asked for. People scan the code; a screenshot
@@ -314,6 +329,10 @@ function showQrModal(title, url) {
     reveal.textContent = urlEl.hidden ? 'Show link' : 'Hide link';
   };
   $('#modal-copy').onclick = () => copy(url);
+  const fp = $('#modal-fp');
+  fp.hidden = !(fingerprint && state.hostFingerprint);
+  fp.textContent = fp.hidden ? '' :
+    `Host fingerprint: ${state.hostFingerprint}. The MeghXL app checks it automatically; a browser can't, so scan this code from the host's own screen.`;
   $('#modal').hidden = false;
 }
 function closeModal() {
@@ -707,14 +726,22 @@ function uploadOne(file, opts) {
   const uploads = $('#uploads');
   const fill = h('div', { class: 'upload-fill' });
   const pct = h('div', { class: 'upload-pct', text: '0%' });
+  const status = h('div', { class: 'upload-status', hidden: true });
+  const cancelBtn = h('button', { class: 'icon-btn tiny', type: 'button', title: 'Cancel upload' }, icon('x', 14));
   const row = h('div', { class: 'upload-row' },
     h('div', { class: 'upload-name', text: file.name }),
     h('div', { class: 'upload-bar' }, fill),
     pct,
+    cancelBtn,
+    status,
   );
   uploads.hidden = false;
   uploads.append(row);
+
   let finished = false;
+  let cancelled = false;
+  let uploadId = null;
+  let xhr = null;
   const cleanup = () => {
     if (finished) return;
     finished = true;
@@ -722,56 +749,134 @@ function uploadOne(file, opts) {
     if (!uploads.children.length) uploads.hidden = true;
     uploadEnded();
   };
-
-  // The sender's name comes from the hub's record of this device.
-  const fd = new FormData();
-  fd.append('expiresInMinutes', opts.expiresInMinutes || '0');
-  fd.append('oneTime', String(!!opts.oneTime));
-  if (opts.to) fd.append('to', opts.to);
-  else fd.append('visibility', opts.visibility);
-  fd.append('file', file);
-
-  const xhr = new XMLHttpRequest();
-  xhr.open('POST', '/api/upload');
-  xhr.setRequestHeader('x-meghxl-device', state.device.id);
-  xhr.upload.onprogress = (e) => {
-    if (!e.lengthComputable) return;
-    const p = Math.round((e.loaded / e.total) * 100);
+  const show = (sent) => {
+    const p = file.size ? Math.min(100, Math.floor((sent / file.size) * 100)) : 100;
     fill.style.width = p + '%';
     pct.textContent = p + '%';
   };
-  xhr.onload = () => {
+  const setStatus = (text) => { status.textContent = text || ''; status.hidden = !text; row.classList.toggle('paused', !!text); };
+  cancelBtn.addEventListener('click', () => {
+    cancelled = true;
+    if (xhr) xhr.abort();
+    if (uploadId) api(`/api/upload/${uploadId}`, { method: 'DELETE' }).catch(() => {});
     cleanup();
-    if (xhr.status >= 200 && xhr.status < 300) {
-      let shape;
-      try { shape = JSON.parse(xhr.responseText); } catch { return toast('Bad server response', 'danger'); }
-      addSent({
-        token: shape.token, originalName: shape.originalName, size: shape.size, mime: shape.mime,
-        expiresAt: shape.expiresAt, oneTime: shape.oneTime, createdAt: shape.createdAt || Date.now(),
-        kind: opts.kind, toName: opts.toName || null, note: opts.note || null, risk: shape.risk || null,
-      });
-      if (opts.to) {
-        toast(`Sent to ${opts.toName || 'device'}`, 'good');
-      } else if (shape.visibility === 'public') {
-        addPublicFile(shape);
-        toast('Shared with everyone', 'good');
-      } else {
-        showQrModal('Private link — share it with one person', dlUrl(shape.token));
-      }
-    } else {
-      let msg = `“${file.name}” didn't upload`;
+    toast(`Cancelled “${file.name}”`);
+  });
+  const fail = (msg) => { cleanup(); toast(msg, 'danger'); };
+
+  // One piece, with progress. Resolves to the server's new count; rejects
+  // with { status, received } on a refusal, or { network: true } when the
+  // connection drops.
+  const sendPiece = (offset, blob) => new Promise((resolve, reject) => {
+    xhr = new XMLHttpRequest();
+    xhr.open('PUT', `/api/upload/${uploadId}?offset=${offset}`);
+    xhr.setRequestHeader('x-meghxl-device', state.device.id);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) show(offset + e.loaded); };
+    xhr.onload = () => {
       let data = {};
-      try { data = JSON.parse(xhr.responseText); msg = `${msg}: ${data.error}`; } catch { /* keep default */ }
-      if (xhr.status === 401 && data.join) showJoinGate();
-      toast(msg, 'danger');
+      try { data = JSON.parse(xhr.responseText); } catch { /* empty */ }
+      if (xhr.status === 200) resolve(data.received);
+      else reject({ status: xhr.status, received: data.received, error: data.error, gone: data.gone });
+    };
+    xhr.onerror = () => reject({ network: true });
+    xhr.onabort = () => reject({ network: true });
+    xhr.send(blob);
+  });
+
+  // When the connection drops (a phone locking its screen, Wi-Fi changing),
+  // wait — longer each time, or until the page is visible / back online —
+  // then ask the hub how much arrived and carry on from there.
+  const waitToRetry = (attempt) => new Promise((resolve) => {
+    const delay = Math.min(30000, 1000 * 2 ** Math.min(attempt, 5));
+    let timer = null;
+    const go = () => {
+      clearTimeout(timer);
+      window.removeEventListener('online', go);
+      document.removeEventListener('visibilitychange', onVisible);
+      resolve();
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') go(); };
+    timer = setTimeout(go, delay);
+    window.addEventListener('online', go);
+    document.addEventListener('visibilitychange', onVisible);
+  });
+
+  const finishUpload = (shape) => {
+    cleanup();
+    addSent({
+      token: shape.token, originalName: shape.originalName, size: shape.size, mime: shape.mime,
+      expiresAt: shape.expiresAt, oneTime: shape.oneTime, createdAt: shape.createdAt || Date.now(),
+      kind: opts.kind, toName: opts.toName || null, note: opts.note || null, risk: shape.risk || null,
+    });
+    if (opts.to) {
+      toast(`Sent to ${opts.toName || 'device'}`, 'good');
+    } else if (shape.visibility === 'public') {
+      addPublicFile(shape);
+      toast('Shared with everyone', 'good');
+    } else {
+      showQrModal('Private link — share it with one person', dlUrl(shape.token));
     }
   };
-  // A phone aborts an upload when the screen locks or the browser goes to the
-  // background. Both used to end silently — the progress bar just vanished.
-  xhr.onerror = () => { cleanup(); toast(`“${file.name}” didn't upload — check the Wi-Fi and try again.`, 'danger'); };
-  xhr.onabort = () => { cleanup(); toast(`“${file.name}” was interrupted. Keep this page open with the screen on until it finishes, then try again.`, 'danger'); };
-  uploadStarted();
-  xhr.send(fd);
+
+  (async () => {
+    uploadStarted();
+    try {
+      // The sender's name comes from the hub's record of this device.
+      const startRes = await api('/api/upload/start', { method: 'POST', json: {
+        name: file.name, size: file.size,
+        visibility: opts.to ? undefined : opts.visibility, to: opts.to || undefined,
+        expiresInMinutes: opts.expiresInMinutes || '0', oneTime: !!opts.oneTime,
+      } });
+      const started = await startRes.json().catch(() => ({}));
+      if (!startRes.ok) return fail(`“${file.name}” didn't upload: ${started.error || 'refused'}`);
+      uploadId = started.uploadId;
+      const chunk = started.chunkSize || 8 * 1024 * 1024;
+
+      let received = 0;
+      let attempt = 0;
+      while (received < file.size && !cancelled) {
+        try {
+          received = await sendPiece(received, file.slice(received, Math.min(file.size, received + chunk)));
+          attempt = 0;
+          setStatus('');
+        } catch (e) {
+          if (cancelled) return;
+          if (e.status === 409 && Number.isFinite(e.received)) { received = e.received; continue; }
+          if (e.gone) return fail(`“${file.name}” was interrupted for too long — please send it again.`);
+          if (!e.network && e.status && e.status !== 502 && e.status !== 503) {
+            return fail(`“${file.name}” didn't upload: ${e.error || 'refused'}`);
+          }
+          setStatus('Paused — will continue when the connection is back');
+          await waitToRetry(attempt++);
+          if (cancelled) return;
+          try {
+            const st = await (await api(`/api/upload/${uploadId}`)).json();
+            if (st.gone) return fail(`“${file.name}” was interrupted for too long — please send it again.`);
+            if (Number.isFinite(st.received)) received = st.received;
+            setStatus('Resuming…');
+          } catch { /* still offline: loop and wait again */ }
+        }
+        show(received);
+      }
+      if (cancelled) return;
+      // An empty file sends no pieces; finishing it is the whole upload.
+      for (let tries = 0; ; tries++) {
+        try {
+          const r = await api(`/api/upload/${uploadId}/finish`, { method: 'POST' });
+          const shape = await r.json().catch(() => ({}));
+          if (!r.ok) return fail(`“${file.name}” didn't upload: ${shape.error || 'refused'}`);
+          return finishUpload(shape);
+        } catch {
+          if (cancelled) return;
+          setStatus('Paused — will continue when the connection is back');
+          await waitToRetry(tries);
+        }
+      }
+    } catch {
+      if (!cancelled) fail(`“${file.name}” didn't upload — check the Wi-Fi and try again.`);
+    }
+  })();
 }
 
 // ---------- keeping uploads alive on phones ----------
@@ -1101,11 +1206,11 @@ function initFoot() {
       try {
         const j = await (await fetch('/api/admin/join', { cache: 'no-store' })).json();
         if (j.privateMode && j.secret) {
-          return showQrModal(`Scan to join — or enter ${j.code}`, `${url}/#join=${j.secret}`);
+          return showQrModal(`Scan to join — or enter ${j.code}`, `${url}/#join=${j.secret}`, { fingerprint: true });
         }
       } catch { /* fall back to the plain link */ }
     }
-    showQrModal('Scan to open on another device', url);
+    showQrModal('Scan to open on another device', url, { fingerprint: true });
   });
 }
 
@@ -1205,6 +1310,7 @@ renderStaged();
 renderNotes();
 
 (async function boot() {
+  loadHostFingerprint();
   if (await consumeInvite()) return; // reloads once joined
   showView(location.hash.slice(1) || 'dashboard');
   window.addEventListener('hashchange', () => showView(location.hash.slice(1) || 'dashboard'));

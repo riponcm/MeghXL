@@ -20,6 +20,7 @@ const createAdminRouter = require('./src/routes/admin');
 const createUpdateRouter = require('./src/routes/update');
 const createJoinRouter = require('./src/routes/join');
 const createHostRouter = require('./src/routes/host');
+const createReachRouter = require('./src/routes/reach');
 const hostIdentity = require('./src/host-identity');
 const { requestGuard } = require('./src/request-guard');
 const { isAdmin } = require('./src/admin-auth');
@@ -73,8 +74,10 @@ function buildApp(hub) {
   const update = createUpdateRouter();
   const joinRoutes = createJoinRouter();
   const hostRoutes = createHostRouter({ hub });
+  const reachRoutes = createReachRouter({ hub });
   app.use(joinRoutes.router);
   app.use(hostRoutes.router);
+  app.use(reachRoutes.router);
   app.use(files.router);
   app.use(notes.router);
   app.use(admin.router);
@@ -119,6 +122,29 @@ function buildApp(hub) {
   });
 
   return { app, files };
+}
+
+/**
+ * A plain explanation for the errors that stop MeghXL starting, or null for
+ * anything unexpected. Windows in particular reports "access forbidden"
+ * (10013 / EACCES) when a port is reserved by Hyper-V, WSL or Docker.
+ */
+function startupError(err, port) {
+  switch (err && err.code) {
+    case 'EADDRINUSE':
+      return `Port ${port} is already in use by another program (perhaps MeghXL is already running). ` +
+        `Close it, or start on another port, e.g. PORT=8080.`;
+    case 'EACCES':
+    case 'EPERM':
+      return process.platform === 'win32'
+        ? `Windows won't let MeghXL use port ${port}: it's reserved (often by Hyper-V, WSL or Docker) or blocked by policy. ` +
+          `Start on another port, e.g. PORT=8080. To see reserved ports: netsh interface ipv4 show excludedportrange protocol=tcp`
+        : `This user isn't allowed to use port ${port}. Use a port above 1024, e.g. PORT=8080.`;
+    case 'EADDRNOTAVAIL':
+      return `This computer has no network address MeghXL can use right now. Check the Wi-Fi or network cable, then start again.`;
+    default:
+      return null;
+  }
 }
 
 /**
@@ -215,11 +241,12 @@ function main() {
   if (sweep.unref) sweep.unref();
 
   server.on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-      console.error(`\n  Port ${config.port} is already in use. Try:  PORT=8080 npm start\n`);
-      process.exit(1);
-    }
-    throw err;
+    const message = startupError(err, config.port);
+    if (!message) throw err;
+    // The desktop app shows lines starting MEGHXL-FATAL: in its window.
+    console.error(`\n  ${message}\n`);
+    console.error(`MEGHXL-FATAL: ${message}`);
+    process.exit(1);
   });
 
   server.listen(config.port, config.host, () => {
@@ -255,4 +282,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { buildApp, tuneServer };
+module.exports = { buildApp, tuneServer, startupError };

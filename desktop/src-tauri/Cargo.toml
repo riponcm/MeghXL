@@ -31,6 +31,10 @@ base64 = "0.22"
 [target.'cfg(target_os = "macos")'.dependencies]
 xattr = "1"
 
+# Keeping the host awake (awake.rs). Already in the tree via Tauri.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_Power"] }
+
 [profile.release]
 codegen-units = 1
 lto = true

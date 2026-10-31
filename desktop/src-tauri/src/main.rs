@@ -7,6 +7,7 @@
 // duplicates it.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod awake;
 mod host_link;
 
 use std::collections::HashMap;
@@ -369,6 +370,7 @@ fn start_server(app: &tauri::AppHandle) -> Result<(u16, Option<CommandChild>), S
         data_dir.join("metadata.json").to_string_lossy().into_owned(),
     );
 
+    let shown = app.clone();
     let (mut rx, child) = app
         .shell()
         .sidecar("meghxl-server")
@@ -384,7 +386,18 @@ fn start_server(app: &tauri::AppHandle) -> Result<(u16, Option<CommandChild>), S
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(line) => print!("{}", String::from_utf8_lossy(&line)),
-                CommandEvent::Stderr(line) => eprint!("{}", String::from_utf8_lossy(&line)),
+                CommandEvent::Stderr(line) => {
+                    let text = String::from_utf8_lossy(&line);
+                    eprint!("{text}");
+                    // The server explains startup failures in plain words on a
+                    // line starting MEGHXL-FATAL: — show that, not a timeout.
+                    if let Some(msg) = text.split("MEGHXL-FATAL:").nth(1) {
+                        show_local(&shown, format!(
+                            "window.__meghxlFailed && window.__meghxlFailed({})",
+                            js_str(msg.trim())
+                        ));
+                    }
+                }
                 CommandEvent::Terminated(payload) => {
                     eprintln!("[meghxl] server exited: {payload:?}");
                 }
@@ -727,6 +740,11 @@ fn menu_action(app: &tauri::AppHandle, id: &str) {
             }
         }
         "forget" => forget_host(app),
+        "keep-awake" => {
+            let on = !awake::wanted(app);
+            awake::remember(app, on);
+            awake::set(on);
+        }
         "copy" => {
             let link = if app.try_state::<IsHost>().map_or(true, |h| h.0) {
                 let port = app.try_state::<AppPort>().map(|p| p.0).unwrap_or(DEFAULT_PORT);
@@ -799,6 +817,10 @@ fn build_app_menu(app: &tauri::AppHandle, is_host: bool) -> tauri::Result<()> {
     } else {
         MenuItemBuilder::with_id("forget", "Forget This Host…").build(app)?
     };
+    let awake_item = CheckMenuItemBuilder::with_id("keep-awake", "Keep Computer Awake While Hosting")
+        .checked(is_host && awake::wanted(app))
+        .enabled(is_host)
+        .build(app)?;
 
     let app_menu = Submenu::with_items(app, "MeghXL", true, &[
         &PredefinedMenuItem::about(app, Some("About MeghXL"), Some(about_metadata()))?,
@@ -808,6 +830,7 @@ fn build_app_menu(app: &tauri::AppHandle, is_host: bool) -> tauri::Result<()> {
         &CheckMenuItemBuilder::with_id("autostart", "Start at Login")
             .checked(app.autolaunch().is_enabled().unwrap_or(false))
             .build(app)?,
+        &awake_item,
         &sep()?,
         &PredefinedMenuItem::services(app, None)?,
         &sep()?,
@@ -881,6 +904,10 @@ fn build_tray(app: &tauri::AppHandle, is_host: bool) -> tauri::Result<()> {
     } else {
         MenuItemBuilder::with_id("forget", "Forget this host…").build(app)?
     };
+    let awake_item = CheckMenuItemBuilder::with_id("keep-awake", "Keep computer awake")
+        .checked(is_host && awake::wanted(app))
+        .enabled(is_host)
+        .build(app)?;
     let menu = MenuBuilder::new(app)
         .items(&[
             &MenuItemBuilder::with_id("open", "Open MeghXL").build(app)?,
@@ -896,6 +923,7 @@ fn build_tray(app: &tauri::AppHandle, is_host: bool) -> tauri::Result<()> {
             &CheckMenuItemBuilder::with_id("autostart", "Start at login")
                 .checked(app.autolaunch().is_enabled().unwrap_or(false))
                 .build(app)?,
+            &awake_item,
             &sep()?,
             &MenuItemBuilder::with_id("quit", "Quit MeghXL").build(app)?,
         ])
@@ -969,6 +997,9 @@ fn main() {
                         create_main_window(&handle)?;
                         build_app_menu(&handle, true)?;
                         build_tray(&handle, true)?;
+                        if awake::wanted(&handle) {
+                            awake::set(true);
+                        }
                         show_dashboard_when_ready(handle, port);
                     }
                     Err(message) => {

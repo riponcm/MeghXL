@@ -43,6 +43,7 @@ const { app } = buildApp({
   rosterDetailed: () => [],
   kickDevice: () => 0,
   kickUnjoined: () => 0,
+  notifyHosts() {},
   broadcastRoster() {},
 });
 
@@ -1164,6 +1165,144 @@ test('one name per computer: not for phones, and not when many devices share an 
     const roster = lastOf(a, 'roster').payload.devices;
     assert.ok(roster.every((d) => !d.computer), 'five desktops at one address look like a shared router: no grouping');
   } finally { await live.close(); }
+});
+
+// ---------------------------------------------------------------------------
+// Resumable uploads
+// ---------------------------------------------------------------------------
+
+test('resumable upload: pieces in order, resume after a cut-off piece, then share', async () => {
+  const content = Buffer.from('The quick brown fox jumps over the lazy dog — resumed!');
+  const start = await request(app).post('/api/upload/start').send({ name: 'story.txt', size: content.length, visibility: 'public' });
+  assert.equal(start.status, 200);
+  const id = start.body.uploadId;
+
+  const first = await request(app).put(`/api/upload/${id}?offset=0`).set('Content-Type', 'application/octet-stream').send(content.subarray(0, 10));
+  assert.equal(first.body.received, 10);
+
+  // A piece cut off halfway — the phone's screen locked mid-send.
+  const server = app.listen(0);
+  await new Promise((resolve) => {
+    const req = http.request({ port: server.address().port, method: 'PUT', path: `/api/upload/${id}?offset=10`,
+      headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': 20, Host: `127.0.0.1:${server.address().port}` } });
+    req.on('error', () => {});
+    req.write(content.subarray(10, 15));
+    setTimeout(() => { req.destroy(); setTimeout(resolve, 100); }, 50);
+  });
+  server.close();
+
+  const status = await request(app).get(`/api/upload/${id}`);
+  assert.equal(status.body.received, 10, 'a cut-off piece is not counted');
+
+  const wrongPlace = await request(app).put(`/api/upload/${id}?offset=30`).set('Content-Type', 'application/octet-stream').send(Buffer.from('x'));
+  assert.equal(wrongPlace.status, 409);
+  assert.equal(wrongPlace.body.received, 10, 'told where to resume');
+
+  const early = await request(app).post(`/api/upload/${id}/finish`);
+  assert.equal(early.status, 409, 'not finished until every byte is there');
+
+  const rest = await request(app).put(`/api/upload/${id}?offset=10`).set('Content-Type', 'application/octet-stream').send(content.subarray(10));
+  assert.equal(rest.body.received, content.length);
+  const done = await request(app).post(`/api/upload/${id}/finish`);
+  assert.equal(done.status, 200);
+  assert.equal(done.body.originalName, 'story.txt');
+
+  const dl = await request(app).get(`/d/${done.body.token}`).buffer().parse(binaryParser);
+  assert.deepEqual(dl.body, content, 'the file arrives intact');
+  assert.equal((await request(app).get(`/api/upload/${id}`)).status, 404, 'and the upload is closed');
+});
+
+test('resumable upload: limits are checked before anything is sent', async () => {
+  const tooBig = await lan(request(app).post('/api/upload/start')).send({ name: 'huge.bin', size: 6 * 1024 * 1024 });
+  assert.equal(tooBig.status, 413);
+  await withFreeSpace(config.minFreeBytes + 1024 * 1024, async () => {
+    const noRoom = await lan(request(app).post('/api/upload/start')).send({ name: 'big.bin', size: 2 * 1024 * 1024 });
+    assert.equal(noRoom.status, 507);
+  });
+});
+
+test('resumable upload: pieces can only be the agreed size, and programs are still checked', async () => {
+  const start = await request(app).post('/api/upload/start').send({ name: 'notes.txt', size: 4 });
+  const id = start.body.uploadId;
+  const overrun = await request(app).put(`/api/upload/${id}?offset=0`).set('Content-Type', 'application/octet-stream').send(Buffer.from('12345'));
+  assert.equal(overrun.status, 400, 'more than the file size is refused');
+
+  store.setSettings({ blockPrograms: true });
+  try {
+    const s2 = await lan(request(app).post('/api/upload/start')).send({ name: 'photo.jpg', size: 2 });
+    await lan(request(app).put(`/api/upload/${s2.body.uploadId}?offset=0`)).set('Content-Type', 'application/octet-stream').send(Buffer.from('MZ'));
+    const fin = await lan(request(app).post(`/api/upload/${s2.body.uploadId}/finish`));
+    assert.equal(fin.status, 415, 'a disguised program is refused at the end, same as any upload');
+  } finally { store.setSettings({ blockPrograms: false }); }
+});
+
+test('resumable upload: cancelling removes the partial file and frees its space', async () => {
+  const start = await request(app).post('/api/upload/start').send({ name: 'x.bin', size: 100 });
+  const id = start.body.uploadId;
+  await request(app).put(`/api/upload/${id}?offset=0`).set('Content-Type', 'application/octet-stream').send(Buffer.alloc(40));
+  const partial = path.join(config.uploadDir, '.partial', id);
+  assert.ok(fs.existsSync(partial));
+  assert.equal((await request(app).delete(`/api/upload/${id}`)).status, 200);
+  assert.ok(!fs.existsSync(partial));
+  const after = await request(app).get(`/api/upload/${id}`);
+  assert.equal(after.status, 404);
+  assert.equal(after.body.gone, true);
+});
+
+// ---------------------------------------------------------------------------
+// Connection test, diagnostics, startup errors
+// ---------------------------------------------------------------------------
+
+test('connection test: a phone opening the test page is seen by the host', async () => {
+  const start = await request(app).post('/api/admin/reach').set('x-meghxl-request', '1');
+  assert.equal(start.status, 200);
+  assert.match(start.body.url, /\/reach\/[A-Za-z0-9_-]+$/);
+  const token = start.body.token;
+  let status = await request(app).get(`/api/admin/reach/${token}`);
+  assert.equal(status.body.reached, false);
+  assert.ok(Array.isArray(status.body.otherCauses) && status.body.otherCauses.length);
+
+  const phone = await lan(request(app).get(`/reach/${token}`)).set('User-Agent', 'Mozilla/5.0 (iPhone)');
+  assert.equal(phone.status, 200);
+  assert.match(phone.text, /can reach the MeghXL host/);
+  status = await request(app).get(`/api/admin/reach/${token}`);
+  assert.equal(status.body.reached, true);
+
+  assert.equal((await lan(request(app).post('/api/admin/reach'))).status, 403, 'only the host starts a test');
+});
+
+test('connection test page opens even in private mode (it carries nothing)', async () => {
+  store.setSettings({ privateMode: true });
+  try {
+    const start = await request(app).post('/api/admin/reach').set('x-meghxl-request', '1');
+    assert.equal((await lan(request(app).get(`/reach/${start.body.token}`))).status, 200);
+  } finally { store.setSettings({ privateMode: false }); }
+});
+
+test('the diagnostic report has the facts and no addresses', async () => {
+  const r = await request(app).get('/api/admin/diagnostics');
+  assert.equal(r.status, 200);
+  assert.match(r.body.text, /^MeghXL \d/);
+  assert.match(r.body.text, /Private mode: (on|off)/);
+  const ip = config.lanIp;
+  if (ip) assert.ok(!r.body.text.includes(ip), 'no LAN address in it');
+  assert.ok(!/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/.test(r.body.text), 'no IP address of any kind');
+  assert.equal((await lan(request(app).get('/api/admin/diagnostics'))).status, 403);
+});
+
+test('startup errors are explained in plain words', () => {
+  const { startupError } = require('../server');
+  assert.match(startupError({ code: 'EADDRINUSE' }, 3000), /already in use/);
+  assert.match(startupError({ code: 'EACCES' }, 3000), /PORT=8080/);
+  assert.match(startupError({ code: 'EADDRNOTAVAIL' }, 3000), /Wi-Fi or network cable/);
+  assert.equal(startupError({ code: 'ENOENT' }, 3000), null);
+});
+
+test('the host fingerprint is public, for people to compare', async () => {
+  const r = await lan(request(app).get('/api/host/identity'));
+  assert.equal(r.status, 200);
+  assert.match(r.body.fingerprint, /^[0-9A-Z]{4}(-[0-9A-Z]{4}){3}$/);
+  assert.ok(!('seed' in r.body), 'never the private key');
 });
 
 test.after(() => {

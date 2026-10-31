@@ -50,6 +50,25 @@ should mirror the entry below it.
 - **Private mode** (host console → Settings → Who can join). Devices must join
   with the host's invite QR or 6-digit code before they can see or send
   anything; “New code” removes everyone at once. Off by default.
+- **Uploads survive interruptions.** Files go up in 8 MB pieces; when a phone
+  locks its screen or the Wi-Fi drops, the upload pauses ("will continue when
+  the connection is back") and carries on from where it stopped instead of
+  starting over. Each upload can be cancelled. Its size is checked against the
+  limits before anything is sent.
+- **"Can phones reach this computer?"** (host console → Settings): a test QR
+  code a phone scans; if it doesn't get through, the console lists what to
+  change. The host also checks its own settings — Windows treating the network
+  as Public, the Mac firewall blocking all incoming connections, ufw — and says
+  so on the Overview.
+- **Diagnostic report** (Settings → Help → Copy report) for bug reports:
+  version, system, settings and the connection test, with no addresses, names
+  or files. The bug report form asks for it.
+- **Keep the host awake** (desktop app, on by default): the computer doesn't go
+  to sleep while it hosts, so links keep working. Turn it off in the menu.
+- **Startup errors in plain words** — port in use, a port Windows has reserved
+  (Hyper-V, WSL, Docker), no network — in the terminal and in the app window.
+- The host's fingerprint is shown where people join, with a plain note that
+  the desktop app checks it and a browser can't.
 - **One host, chosen on purpose.** The desktop app asks on first launch whether
   this computer is the host or joins it; existing installs stay hosts. Nothing
   ever becomes the host automatically — when the host is offline, everyone

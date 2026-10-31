@@ -106,7 +106,7 @@ body {
 /* ---------- uploads ---------- */
 .uploads { display: flex; flex-direction: column; gap: 8px; margin: 14px 0; }
 .upload-hint { font-size: 12.5px; color: var(--muted); margin: -6px 0 12px; }
-.upload-row { display: grid; grid-template-columns: 1fr 2fr auto; gap: 10px; align-items: center; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; }
+.upload-row { display: grid; grid-template-columns: 1fr 2fr auto auto; gap: 10px; align-items: center; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; }
 .upload-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .upload-bar { height: 8px; background: var(--panel-2); border-radius: 999px; overflow: hidden; }
 .upload-fill { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .15s; }
@@ -222,7 +222,7 @@ body {
   .file-actions { grid-column: 1 / -1; justify-content: flex-end; }
   .device-card { grid-template-columns: auto 1fr; }
   .device-actions { grid-column: 1 / -1; justify-content: flex-end; }
-  .upload-row { grid-template-columns: 1fr auto; }
+  .upload-row { grid-template-columns: 1fr auto auto; }
   .upload-bar { grid-column: 1 / -1; order: 3; }
 }
 
@@ -394,3 +394,14 @@ body {
 .offline-banner { margin: 0 0 16px; padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(251,191,36,.45); background: rgba(251,191,36,.08); color: var(--text); font-size: 14px; }
 .offline-banner a { color: var(--accent); }
 .limit-row > .btn { flex: none; white-space: nowrap; }
+/* A resumable upload waiting for the connection to come back. */
+.upload-status { grid-column: 1 / -1; order: 4; font-size: 12px; color: var(--warn); }
+.upload-row.paused .upload-fill { opacity: .5; }
+.modal-fp, .gate-fp { font-size: 11.5px; color: var(--muted); margin: 10px 0 0; line-height: 1.45; word-break: break-word; }
+.gate-card .gate-fp { margin-top: 14px; }
+.reach-ok { color: var(--good, #36d399); font-weight: 600; }
+.reach-bad { color: var(--danger); font-weight: 600; }
+.reach-causes { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+.reach-causes li { margin: 4px 0; }
+.reach-causes b { color: var(--text); font-weight: 600; }
+.reach-warning { border: 1px solid rgba(248,114,114,.45); background: rgba(248,114,114,.07); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }

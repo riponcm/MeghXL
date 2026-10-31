@@ -9,7 +9,8 @@ const config = require('../config');
 const store = require('../store');
 const qr = require('../qr');
 const disk = require('../disk');
-const { token } = require('../ids');
+const crypto = require('node:crypto');
+const { token, storedName } = require('../ids');
 const { uploadWithin, decodeOriginalName } = require('../uploads');
 const { shareDownloadUrl } = require('../baseUrl');
 const { isAdmin } = require('../admin-auth');
@@ -193,6 +194,14 @@ module.exports = function createFilesRouter(hub) {
         removed++;
       } catch { /* gone already */ }
     }
+    // Pieces of uploads that were in progress when the server last stopped.
+    try {
+      for (const name of await fs.promises.readdir(partialDir)) {
+        const p = path.join(partialDir, name);
+        const st = await fs.promises.stat(p);
+        if (!sessions.has(name) && Date.now() - st.mtimeMs > ORPHAN_AGE_MS) { await fs.promises.unlink(p); removed++; }
+      }
+    } catch { /* none */ }
     return removed;
   }
 
@@ -252,29 +261,35 @@ module.exports = function createFilesRouter(hub) {
     uploadWithin(allowance).single('file')(req, res, next);
   }
 
-  router.post('/api/upload', uploadRate, admitUpload, (req, res) => {
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  /**
+   * Turn a file that has fully arrived into a share: name it, label or refuse
+   * programs, record it, announce it. Used by both upload paths. `fields` are
+   * the sender's options (visibility, to, expiry, one-time). Returns false if
+   * it answered with an error (and removed the file).
+   */
+  function finalize(req, res, { filePath, fileName, size, rawName, fields }) {
     disk.invalidate();
     const admin = isAdmin(req);
     const deviceId = deviceOf(req);
 
-    const oneTime = req.body.oneTime === 'true' || req.body.oneTime === 'on';
+    const oneTime = fields.oneTime === true || fields.oneTime === 'true' || fields.oneTime === 'on';
 
     let expiresAt = null;
-    const mins = parseInt(req.body.expiresInMinutes, 10);
+    const mins = parseInt(fields.expiresInMinutes, 10);
     if (Number.isFinite(mins) && mins > 0) {
       expiresAt = Date.now() + Math.min(mins, MAX_EXPIRY_MINUTES) * 60 * 1000;
     }
 
     // A `to` (a device's handle) means a direct, device-to-device send: not
     // listed anywhere, delivered only to that device's live sockets.
-    const to = cleanText(req.body.to, 40);
+    const to = cleanText(fields.to, 40);
     let toDeviceId = null;
     if (to) {
       toDeviceId = hub.idOfHandle(to);
       if (!toDeviceId) {
-        unlinkPath(req.file.path);
-        return res.status(404).json({ error: 'That device is no longer connected.' });
+        unlinkPath(filePath);
+        res.status(404).json({ error: 'That device is no longer connected.' });
+        return false;
       }
     }
     // Who shared it — shown on the dashboard ("by <name>") and on direct sends.
@@ -287,8 +302,8 @@ module.exports = function createFilesRouter(hub) {
       visibility = 'direct';
       // Honor a user-set expiry; otherwise self-clean after 24h.
       if (expiresAt == null) expiresAt = Date.now() + 24 * 60 * 60 * 1000;
-    } else if (VALID_VISIBILITY.has(req.body.visibility)) {
-      visibility = req.body.visibility;
+    } else if (VALID_VISIBILITY.has(fields.visibility)) {
+      visibility = fields.visibility;
     }
 
     // Apply the host's default expiry (Settings) when the upload didn't set one.
@@ -299,16 +314,17 @@ module.exports = function createFilesRouter(hub) {
       }
     }
 
-    const originalName = cleanFilename(decodeOriginalName(req.file.originalname));
+    const originalName = cleanFilename(rawName);
 
     // Programs, scripts, installers — and anything whose content contradicts
     // its name. Labelled for everyone; refused if the host has said so.
-    const verdict = classify(req.file.path, originalName, req.file.size);
+    const verdict = classify(filePath, originalName, size);
     if (verdict && store.getSettings().blockPrograms === true && !admin) {
-      unlinkPath(req.file.path);
+      unlinkPath(filePath);
       const what = verdict.quiet ? "archives it can't look inside" : `programs (${inSentence(verdict.label)})`;
       activity.log('upload-refused', `Refused “${originalName}”: ${verdict.quiet ? "archive it can't look inside" : inSentence(verdict.label)}`, { ip: remoteIp(req), noisy: true });
-      return res.status(415).json({ error: `This hub doesn't accept ${what}. Ask the host if you need to share one.` });
+      res.status(415).json({ error: `This hub doesn't accept ${what}. Ask the host if you need to share one.` });
+      return false;
     }
     // Quiet verdicts ("couldn't look inside") only matter to the setting above.
     const risk = verdict && !verdict.quiet ? verdict : null;
@@ -316,8 +332,8 @@ module.exports = function createFilesRouter(hub) {
     const meta = {
       token: token(),
       originalName,
-      storedName: req.file.filename,
-      size: req.file.size,
+      storedName: fileName,
+      size,
       // From the name, never the sender's claim — and nothing that would
       // invite a browser to treat a program as something else.
       mime: risk ? 'application/octet-stream' : (mime.lookup(originalName) || 'application/octet-stream'),
@@ -342,7 +358,165 @@ module.exports = function createFilesRouter(hub) {
       hub.sendToDevice(to, 'file-sent', shape);
     }
     res.json(shape);
+    return true;
+  }
+
+  // One request with the whole file (multipart). Simple, and what scripts and
+  // older pages use; a phone that locks its screen loses the lot, which is
+  // what the resumable path below is for.
+  router.post('/api/upload', uploadRate, admitUpload, (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    finalize(req, res, {
+      filePath: req.file.path,
+      fileName: req.file.filename,
+      size: req.file.size,
+      rawName: decodeOriginalName(req.file.originalname),
+      fields: req.body,
+    });
   });
+
+  // ---- resumable uploads ------------------------------------------------------
+  // A file goes up in pieces. If the connection drops — a phone locking its
+  // screen, Wi-Fi changing — the page asks how much arrived and carries on
+  // from there instead of starting again.
+  //
+  //   POST   /api/upload/start          { name, size, …options } → { uploadId, chunkSize }
+  //   PUT    /api/upload/:id?offset=N   the next piece (raw bytes)
+  //   GET    /api/upload/:id            { received, size } — where to resume
+  //   POST   /api/upload/:id/finish     the file is complete: share it
+  //   DELETE /api/upload/:id            give up; the partial file is removed
+  //
+  // The upload id is a 128-bit secret held by the sending page. The size is
+  // checked against the limits (and its disk space held) when the upload
+  // starts, not after it has crept onto the disk.
+
+  const CHUNK_MAX = 8 * 1024 * 1024;
+  const SESSION_IDLE_MS = 24 * 60 * 60 * 1000;
+  const MAX_SESSIONS_PER_IP = 8;
+  const MAX_SESSIONS = 64;
+  const UPLOAD_ID_RE = /^u_[0-9a-f]{32}$/;
+  const partialDir = path.join(config.uploadDir, '.partial');
+  fs.mkdirSync(partialDir, { recursive: true });
+  const sessions = new Map();
+
+  function dropSession(s, removeFile = true) {
+    sessions.delete(s.id);
+    reservedBytes -= s.reserved;
+    s.reserved = 0;
+    if (removeFile) unlinkPath(s.path);
+  }
+
+  router.param('uploadId', (req, res, next, value) => {
+    const s = UPLOAD_ID_RE.test(value) && sessions.get(value);
+    if (!s) return res.status(404).json({ error: 'That upload has ended — start it again.', gone: true });
+    s.touchedAt = Date.now();
+    req.uploadSession = s;
+    next();
+  });
+
+  router.post('/api/upload/start', uploadRate, async (req, res) => {
+    const body = req.body || {};
+    const size = Number(body.size);
+    const name = typeof body.name === 'string' ? body.name : '';
+    if (!Number.isSafeInteger(size) || size < 0 || !name) return res.status(400).json({ error: 'Missing file name or size' });
+    const ip = remoteIp(req);
+    const mine = [...sessions.values()].filter((x) => x.ip === ip).length;
+    if (mine >= MAX_SESSIONS_PER_IP || sessions.size >= MAX_SESSIONS) {
+      return res.status(429).json({ error: 'Too many uploads at once — wait for one to finish.' });
+    }
+    if (body.to && !hub.idOfHandle(cleanText(body.to, 40))) {
+      return res.status(404).json({ error: 'That device is no longer connected.' });
+    }
+    const host = isAdmin(req);
+    const { bytes: allowance, reason } = await disk.uploadAllowance(host, () => reservedBytes);
+    if (size > allowance) {
+      const r = limitError({ reason, cap: disk.fileCap(host) });
+      if (reason !== 'cap') activity.log('upload-refused', `Refused an upload: ${r.why}`, { ip, noisy: true });
+      return res.status(r.status).json({ error: r.error });
+    }
+    const id = 'u_' + crypto.randomBytes(16).toString('hex');
+    const s = {
+      id, ip, size, name,
+      path: path.join(partialDir, id),
+      received: 0,
+      reserved: size,
+      writing: false,
+      touchedAt: Date.now(),
+      fields: { visibility: body.visibility, to: body.to, expiresInMinutes: body.expiresInMinutes, oneTime: body.oneTime },
+    };
+    try { fs.writeFileSync(s.path, '', { mode: 0o600 }); } catch { return res.status(500).json({ error: 'Server error' }); }
+    reservedBytes += size;
+    sessions.set(id, s);
+    res.json({ uploadId: id, chunkSize: CHUNK_MAX, received: 0 });
+  });
+
+  router.get('/api/upload/:uploadId', (req, res) => {
+    const s = req.uploadSession;
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ received: s.received, size: s.size });
+  });
+
+  router.put('/api/upload/:uploadId', (req, res) => {
+    const s = req.uploadSession;
+    const offset = Number(req.query.offset);
+    const length = Number(req.headers['content-length']);
+    // Pieces arrive in order, one at a time; anything else is told where to
+    // resume from. A piece is only counted once all of it has arrived, so a
+    // cut-off piece is simply sent again.
+    if (s.writing || offset !== s.received) return res.status(409).json({ received: s.received });
+    if (!Number.isSafeInteger(length) || length <= 0 || length > CHUNK_MAX || offset + length > s.size) {
+      return res.status(400).json({ error: 'Bad piece size' });
+    }
+    s.writing = true;
+    let got = 0;
+    const out = fs.createWriteStream(s.path, { flags: 'r+', start: offset });
+    const done = (ok) => {
+      if (!s.writing) return;
+      s.writing = false;
+      if (ok && got === length) {
+        s.received += length;
+        // Now on disk, so no longer held in reserve.
+        const freed = Math.min(length, s.reserved);
+        s.reserved -= freed;
+        reservedBytes -= freed;
+        disk.invalidate();
+      }
+    };
+    req.on('data', (chunk) => {
+      got += chunk.length;
+      if (got > length) { req.destroy(); out.destroy(); done(false); }
+    });
+    req.on('aborted', () => { out.destroy(); done(false); });
+    req.on('error', () => { out.destroy(); done(false); });
+    out.on('error', () => { done(false); if (!res.headersSent) res.status(500).json({ error: 'Could not write the file' }); });
+    out.on('finish', () => {
+      done(true);
+      if (!res.headersSent) res.json({ received: s.received });
+    });
+    req.pipe(out);
+  });
+
+  router.post('/api/upload/:uploadId/finish', (req, res) => {
+    const s = req.uploadSession;
+    if (s.writing || s.received !== s.size) return res.status(409).json({ received: s.received, error: 'Not all of the file has arrived yet' });
+    const fileName = storedName(s.name);
+    const dest = path.join(config.uploadDir, fileName);
+    try { fs.renameSync(s.path, dest); } catch { return res.status(500).json({ error: 'Could not store the file' }); }
+    dropSession(s, false);
+    finalize(req, res, { filePath: dest, fileName, size: s.size, rawName: s.name, fields: s.fields });
+  });
+
+  router.delete('/api/upload/:uploadId', (req, res) => {
+    dropSession(req.uploadSession);
+    res.json({ ok: true });
+  });
+
+  // Uploads abandoned for a day are given up; their space is freed.
+  const sessionSweep = setInterval(() => {
+    const cutoff = Date.now() - SESSION_IDLE_MS;
+    for (const s of sessions.values()) if (s.touchedAt < cutoff && !s.writing) dropSession(s);
+  }, 10 * 60 * 1000);
+  if (sessionSweep.unref) sessionSweep.unref();
 
   // GET /api/files — public, non-expired only -------------------------------
   router.get('/api/files', (req, res) => {
