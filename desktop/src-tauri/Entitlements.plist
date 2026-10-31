@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements for the signed, notarized macOS build. Tauri applies these to
+  every executable it signs — the app and the bundled server sidecar.
+
+  The server is compiled by Bun, whose JavaScript engine compiles hot code at
+  runtime (JIT). Apple's hardened runtime, required for notarization, forbids
+  that unless these two are granted; projects signing Bun binaries without them
+  report crashes at launch ("Ran out of executable memory").
+
+  Deliberately NOT included, although Bun's guide lists them: allow-dyld-
+  environment-variables and disable-library-validation. Both let other code be
+  injected into the process, and the server needs neither.
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+</dict>
+</plist>

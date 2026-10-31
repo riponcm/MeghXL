@@ -21,6 +21,10 @@ jobs:
   build:
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
+    env:
+      # Platform signing switches on only once its secrets exist, so the
+      # workflow keeps working (unsigned) before they're added.
+      MAC_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -29,7 +33,10 @@ jobs:
             os: macos-14
             target: aarch64-apple-darwin
           - label: macOS (Intel)
-            os: macos-13
+            # Cross-compiled on Apple Silicon: GitHub's last Intel image
+            # (macos-13) left this job queued forever, and an Intel build made
+            # anywhere but CI couldn't be signed and notarized with the others.
+            os: macos-14
             target: x86_64-apple-darwin
           - label: Windows (x64)
             os: windows-latest
@@ -87,6 +94,61 @@ jobs:
         shell: bash
         run: bash desktop/scripts/build-server.sh ${{ matrix.target }}
 
+      # ---- macOS: Developer ID signing + notarization -----------------------
+      - name: Import the Developer ID certificate
+        if: runner.os == 'macOS' && env.MAC_SIGNING == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          KC="$RUNNER_TEMP/build.keychain-db"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KC"
+          security set-keychain-settings -lut 3600 "$KC"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KC"
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/cert.p12"
+          ID=$(security find-identity -v -p codesigning "$KC" | grep -o '"Developer ID Application:[^"]*"' | head -1 | tr -d '"')
+          if [ -z "$ID" ]; then
+            echo "::error::No 'Developer ID Application' identity in APPLE_CERTIFICATE. Other certificate types can't be notarized for direct download."
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$ID" >> "$GITHUB_ENV"
+          echo "Signing as: $ID"
+
+      # Export notarization credentials ONLY when they have values. GitHub passes
+      # an unset secret as an empty string, and Tauri treats an empty APPLE_ID
+      # as "use the Apple ID method" — which would override a working API key
+      # and fail notarization with empty credentials.
+      - name: Prepare notarization credentials
+        if: runner.os == 'macOS' && env.MAC_SIGNING == 'true'
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$APPLE_API_KEY_P8" ] && [ -n "$APPLE_API_KEY" ] && [ -n "$APPLE_API_ISSUER" ]; then
+            echo "$APPLE_API_KEY_P8" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+            { echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/AuthKey.p8"
+              echo "APPLE_API_KEY=$APPLE_API_KEY"
+              echo "APPLE_API_ISSUER=$APPLE_API_ISSUER"; } >> "$GITHUB_ENV"
+            echo "Notarizing with the App Store Connect API key."
+          elif [ -n "$APPLE_ID" ] && [ -n "$APPLE_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            { echo "APPLE_ID=$APPLE_ID"
+              echo "APPLE_PASSWORD=$APPLE_PASSWORD"
+              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"; } >> "$GITHUB_ENV"
+            echo "Notarizing with Apple ID + app-specific password."
+          else
+            echo "::error::APPLE_CERTIFICATE is set but notarization isn't: add APPLE_API_KEY_P8 + APPLE_API_KEY + APPLE_API_ISSUER (or APPLE_ID + APPLE_PASSWORD + APPLE_TEAM_ID)."
+            exit 1
+          fi
+
       - name: Build and bundle
         uses: tauri-apps/tauri-action@v1
         env:
@@ -95,22 +157,51 @@ jobs:
           # it just produces no latest.json, so in-app updates stay off.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS signing identity and notarization credentials arrive through
+          # GITHUB_ENV from the steps above — only when they're configured.
         with:
           projectPath: desktop
           args: --target ${{ matrix.target }}
           # Only set on a tag push, which is what makes tauri-action publish.
           tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
           releaseName: MeghXL __VERSION__
-          releaseBody: |
-            Download the build for your platform below.
-
-            These builds are **unsigned**: macOS shows "unidentified developer"
-            (right-click the app and choose Open the first time) and Windows
-            shows a SmartScreen prompt (More info → Run anyway). Building from
-            source avoids both.
+          # Placeholder — real notes are written when the draft is published.
+          releaseBody: Download the build for your platform below.
           releaseDraft: true
           # Publishes latest.json, which the app's "Check for updates" reads.
           uploadUpdaterJson: true
+
+      - name: Verify signature, notarization and the signed server
+        if: runner.os == 'macOS' && env.MAC_SIGNING == 'true'
+        run: |
+          APP="desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/MeghXL.app"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -d --entitlements - "$APP/Contents/MacOS/meghxl-server" 2>/dev/null | grep -q allow-jit \
+            || { echo "::error::Server sidecar is missing the JIT entitlements"; exit 1; }
+          spctl --assess --type execute --verbose=4 "$APP"   # Gatekeeper: passes only if notarized
+          xcrun stapler validate "$APP"
+          # The real signed server, under the hardened runtime, on real hardware.
+          # (Intel is cross-compiled here and can't run natively, so only arm64.)
+          if [ "${{ matrix.target }}" = "aarch64-apple-darwin" ]; then
+            mkdir -p "$RUNNER_TEMP/d/uploads"
+            PORT=3999 MDNS=off PUBLIC_DIR="$APP/Contents/Resources/resources/public" \
+              UPLOAD_DIR="$RUNNER_TEMP/d/uploads" DATA_FILE="$RUNNER_TEMP/d/m.json" \
+              "$APP/Contents/MacOS/meghxl-server" > "$RUNNER_TEMP/srv.log" 2>&1 &
+            PID=$!
+            for i in $(seq 1 40); do curl -s -m 1 http://127.0.0.1:3999/api/health | grep -q ok && break; sleep 0.25; done
+            for i in $(seq 1 500); do
+              curl -sf -m 2 -o /dev/null http://127.0.0.1:3999/api/files || { cat "$RUNNER_TEMP/srv.log"; echo "::error::Signed server failed under load"; exit 1; }
+            done
+            kill -0 $PID || { cat "$RUNNER_TEMP/srv.log"; echo "::error::Signed server crashed"; exit 1; }
+            kill $PID
+            echo "Signed server ran 500 requests under the hardened runtime."
+          fi
+
+      - name: Remove the signing keychain
+        if: always() && runner.os == 'macOS' && env.MAC_SIGNING == 'true'
+        run: |
+          security delete-keychain "$RUNNER_TEMP/build.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/AuthKey.p8"
 
       - name: Upload installers as artifacts
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
