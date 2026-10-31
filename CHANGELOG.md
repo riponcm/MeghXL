@@ -9,6 +9,59 @@ should mirror the entry below it.
 
 ## [Unreleased]
 
+### Security
+- **One oversized WebSocket message crashed the server.** Any device on the
+  network could take the hub down with a single message over 100 MB. Messages
+  are now capped at 64 KB, socket errors are handled, and sockets, messages and
+  connections per address are rate-limited.
+- **A device could impersonate another one** by copying its id from the device
+  list, then receive that device's direct files and private messages. Device ids
+  are now never shared: other devices see a handle derived from it. Sender names
+  come from the hub's own records, so nobody can post as someone else — or as the
+  host. Existing browsers get a fresh id on first load (names are kept).
+- **Anyone could delete any file or message.** Now only the device that shared it,
+  or the host, can.
+- **Blocking only cut the live connection** — a blocked device could keep
+  uploading, posting and deleting. A block now covers every request.
+- **Disguised programs.** Filenames lose invisible characters such as the
+  right-to-left override that makes `photo‮gpj.exe` read as `photoexe.jpg`, and
+  long names keep their real extension. Uploads are checked: programs, scripts,
+  installers, macro documents and zipped apps are labelled; a program named like
+  a photo or document is called out; saving one asks first. The type a sender
+  claims is ignored.
+- **The desktop app marks received files as downloaded**, so macOS Gatekeeper
+  and Windows SmartScreen / Protected View check them before they open.
+- Uploads stop before the host's disk drops below `MIN_FREE_MB` (5 GB by
+  default), at most 4 uploads at once per address.
+- Wrong admin keys are throttled per address; the console keeps the key for the
+  tab's session only.
+- Pages send a strict Content-Security-Policy; `X-Forwarded-*` is trusted only
+  from a proxy on the same machine.
+- The metadata file (which holds the admin key) is readable by its owner only;
+  a damaged one is set aside instead of overwritten; files a crash left behind
+  in `uploads/` are cleaned up.
+- Tokens such as `__proto__` are plain "not found" instead of a server error;
+  malformed uploads get a 400.
+
+### Added
+- **Private mode** (host console → Settings → Who can join). Devices must join
+  with the host's invite QR or 6-digit code before they can see or send
+  anything; “New code” removes everyone at once. Off by default.
+- **Refuse programs** (host console → Settings → Programs). Off by default:
+  programs are allowed but labelled.
+
+### Fixed
+- In the desktop app, two downloads at once could swap paths in the "Saved to"
+  notice.
+
+### Upgrading
+- Scripts that post notes, messages or direct sends: the sender is now taken from
+  the `x-meghxl-device` header (a device that has identified over WebSocket);
+  `fromName` / `fromId` in the body are ignored. Direct sends and messages are
+  addressed by the handle shown in the device list.
+- Deleting a public file through the API needs the uploading device's
+  `x-meghxl-device` header, or admin.
+
 ## [1.0.1] — 2026-09-28
 
 ### Security

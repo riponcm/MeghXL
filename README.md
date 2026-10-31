@@ -84,6 +84,12 @@ one machine has to be on, and in exchange nobody else installs anything.
 - **LAN-only by design** — MeghXL never exposes itself to the internet. For
   remote access, put it behind your own VPN or authenticated reverse proxy and
   set `PUBLIC_BASE_URL` (so links/QRs point at that address).
+- **Private mode for shared Wi-Fi** — in a café, office or hotel, the host can
+  require devices to join with an invite QR or a 6-digit code first.
+- **Program warnings** — apps, installers and scripts are labelled, a program
+  disguised as a photo or PDF is called out, and saving one asks first. The
+  desktop app marks received files so macOS and Windows check them before they
+  open.
 - **Always-on mode** — one command makes a "mother PC" serve on every boot.
 - **Host console** — a private `/admin` page on the host PC to see connected
   devices, block or unblock them, broadcast announcements, and manage files.
@@ -218,6 +224,7 @@ All optional — set as environment variables (for example, `PORT=8080 npm start
 |---|---|---|
 | `PORT` | `3000` | Port to listen on |
 | `MAX_UPLOAD_MB` | _(unlimited)_ | Cap upload size in MB; unset or `0` = no limit |
+| `MIN_FREE_MB` | `5120` | Refuse uploads that would leave less than this much free disk space (MB) |
 | `UPLOAD_DIR` | `./uploads` | Where files are stored |
 | `DATA_FILE` | `./metadata.json` | Metadata store path |
 | `PUBLIC_BASE_URL` | _(unset)_ | Override the base URL for all links and QRs |

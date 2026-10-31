@@ -107,20 +107,29 @@ MeghXL assumes the **local network is trusted**. That is the security boundary.
 | **Websites attacking the hub through the host's browser** (DNS rebinding, CSRF, cross-site WebSockets, clickjacking) | Because any web page open on the host PC can make its browser connect from loopback, the machine check alone is not enough. Every request is also checked: unknown `Host` names are refused (rebinding), writes must come from a MeghXL page (`Origin` / `Sec-Fetch-Site`), admin writes need a header only MeghXL's own script sends, WebSocket handshakes must be same-origin, and no page can be framed. **Fixed in 1.0.1** — see the advisory below. | `src/request-guard.js`, `src/admin-auth.js` (+ tests) |
 | **XSS / HTML injection** | All user-supplied content (filenames, notes, device names) is inserted with `textContent`. `innerHTML` is used **only** for the project's own static SVG icon markup — never for user input. | `public/app.js`, `public/admin.js` |
 | **Uploaded files running as pages** | Downloads are always `Content-Disposition: attachment` with `nosniff`, and carry `Content-Security-Policy: sandbox` and `Cross-Origin-Resource-Policy: same-origin` — so an uploaded `.html` or `.svg` can't run on MeghXL's origin or be embedded by another site. | `src/routes/files.js` |
-| **HTTP header injection** | `Content-Disposition` filenames are sanitized (control chars stripped, RFC 5987 encoded). | `src/routes/files.js` |
-| **Memory exhaustion** | Uploads stream to disk (never buffered in RAM); upload size can be capped with `MAX_UPLOAD_MB` (unlimited by default); JSON bodies capped at 16 KB. | `src/uploads.js`, `server.js` |
+| **HTTP header injection** | Filenames are cleaned when uploaded (control and invisible characters removed) and sent RFC 5987-encoded with an ASCII fallback. | `src/text.js`, `src/routes/files.js` |
+| **Disguised programs** | Names lose invisible characters such as the right-to-left override (`photo‮gpj.exe` → `photogpj.exe`); long names are shortened without hiding the real extension, and the dashboard always shows the extension on its own. Each upload's first bytes and, for zips, the names inside it are checked: programs, scripts, installers and macro documents are labelled, a program wearing a document's name is called out, and saving one asks first. The type the sender claims is ignored. The host can refuse programs altogether. MeghXL says what a file **is**, never that it is safe — it does not scan for malware. | `src/filetype.js`, `public/app.js` |
+| **Received files skipping OS checks** | The desktop app marks every file it saves as downloaded (macOS quarantine, Windows Mark-of-the-Web as Internet zone), so Gatekeeper, SmartScreen and Office Protected View check it before it opens. | `desktop/src-tauri/src/main.rs` |
+| **Impersonating another device** | Device ids are secrets between a browser and the hub; other devices only see a derived handle, which can't be used to identify as that device. Sender names come from the hub's own record, and names that imitate the host are marked. | `src/identity.js`, `src/ws-hub.js` |
+| **Deleting other people's things** | Only the device that shared a file or posted a message — or the host — can delete it. | `src/routes/files.js`, `src/routes/notes.js` |
+| **Blocked devices coming back** | A block applies to every request (pages, uploads, messages, downloads), not only the live connection. Blocks by address lapse after a day, since DHCP reassigns them; blocks on the device stay. | `server.js` (`blockGuard`), `src/store.js` |
+| **Flooding and exhaustion** | WebSocket messages are capped at 64 KB (a 100 MB frame used to crash the server) with per-socket rate limits and per-address connection caps; messages, QR codes, join attempts and wrong admin keys are rate-limited per address; at most 4 uploads at once per address; uploads stop before the disk drops below `MIN_FREE_MB` (5 GB by default); uploads stream to disk; JSON bodies are capped at 16 KB; remembered device names are capped. | `src/ws-hub.js`, `src/limits.js`, `src/disk.js`, `src/admin-auth.js` |
+| **Strangers on a shared network** | Optional **private mode**: devices must join with the host's invite QR or a 6-digit code before they can see or send anything. Download links keep working. | `src/join.js` |
+| **Script injection, as a backstop** | Pages carry a Content-Security-Policy allowing only MeghXL's own scripts and connections to the hub. | `src/request-guard.js` |
 
 ## What MeghXL does **not** do (limitations, stated plainly)
 
 Honesty matters more than reassurance:
 
-- On the LAN, **public files can be read and deleted by anyone on the network**
-  (the “shared board” model). Use **private** + **expiry** + **one-time** links
-  for anything sensitive.
+- On the LAN, **public files can be read by anyone on the network** (the
+  “shared board” model) — unless the host turns on **private mode**. Use
+  **private** + **expiry** + **one-time** links for anything sensitive.
+- **Traffic is plain HTTP.** On an open or shared network, someone able to
+  intercept traffic can read transfers and copy a session. Private mode keeps
+  strangers off the board; it does not encrypt anything.
+- **No malware scanning.** Program labels describe what a file is; they can't
+  tell good software from bad.
 - **No at-rest encryption** of stored files.
-- **No rate limiting / brute-force throttling.** This is acceptable on a trusted
-  LAN (and private tokens are 128-bit), but it is not hardened to face a hostile
-  network directly.
 - It is **not designed to be directly internet-facing** without your own
   authentication layer in front (see below).
 - **Admin is tied to the host machine, not to a login.** Every browser on the host
@@ -128,10 +137,10 @@ Honesty matters more than reassurance:
   a PC shared with people you don't trust. A reverse proxy on the same machine must
   send `X-Forwarded-For`, or the people it forwards look like the host. A per-install
   pairing secret is planned for 1.1.
-- **Device identity is not authenticated between LAN devices.** A device on your
-  network can claim another device's id and receive its direct sends and private
-  messages, and sender names on notes and messages are self-declared. Only the
-  **announcement** label ("Announced by Admin (host)") is reserved to the admin.
+- **Device identity lives in the browser.** A device is whoever holds its id,
+  kept in that browser's storage. Anyone with access to that browser — or able to
+  intercept plain-HTTP traffic — can act as that device. Display names are chosen
+  by their owners and are not verified.
 - **Host names.** IP addresses, `localhost`, and local names (`.local`, `.lan`,
   single-label names, …) work out of the box. Any other name — a proxy's public
   domain, a Tailscale `*.ts.net` name — must be listed in `ALLOWED_HOSTS` or be the
