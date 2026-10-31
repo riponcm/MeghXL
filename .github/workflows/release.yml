@@ -100,6 +100,18 @@ jobs:
         shell: bash
         run: bash desktop/scripts/build-server.sh ${{ matrix.target }}
 
+      # The AppImage tool runs ldd on every program it packs; show what ldd
+      # makes of the compiled server, so a failure there is explained.
+      - name: Inspect the server binary (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          BIN=$(ls desktop/src-tauri/binaries/meghxl-server-*)
+          file "$BIN"
+          ls -la "$BIN"
+          readelf -l "$BIN" | grep -i -A1 interpreter || true
+          ldd "$BIN"; echo "ldd exit code: $?"
+          ldd --version | head -1
+
       # ---- macOS: Developer ID signing + notarization -----------------------
       - name: Import the Developer ID certificate
         if: runner.os == 'macOS' && env.MAC_SIGNING == 'true'
