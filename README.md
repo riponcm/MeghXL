@@ -39,6 +39,15 @@ caps or cloud middlemen.
 A [matily.org](https://matily.org/meghxl/) product. Free and open source under the
 Apache 2.0 license.
 
+<p align="center">
+  <a href="https://github.com/riponcm/MeghXL/releases/download/v1.1.0/MeghXL_1.1.0_x64-setup.exe"><img src="assets/buttons/get-windows.svg" alt="Download MeghXL for Windows x64 (EXE installer)" width="200" height="53" /></a>
+  <a href="https://github.com/riponcm/MeghXL/releases/download/v1.1.0/MeghXL_1.1.0_aarch64.dmg"><img src="assets/buttons/get-mac-apple-silicon.svg" alt="Download MeghXL for Mac with Apple Silicon (DMG)" width="200" height="53" /></a>
+  <a href="https://github.com/riponcm/MeghXL/releases/download/v1.1.0/MeghXL_1.1.0_x64.dmg"><img src="assets/buttons/get-mac-intel.svg" alt="Download MeghXL for Mac with Intel (DMG)" width="200" height="53" /></a>
+  <a href="#linux"><img src="assets/buttons/get-linux.svg" alt="Download MeghXL for Linux x64 (DEB or RPM)" width="200" height="53" /></a>
+</p>
+
+<p align="center"><sub>v1.1.0 · Signed and notarized · Free, no account · Not sure which Mac? Apple menu → About This Mac · <a href="https://github.com/riponcm/MeghXL/releases/tag/v1.1.0">Release notes</a> · <a href="#download">Install notes</a></sub></p>
+
 ## How MeghXL compares
 
 |  | **MeghXL** | LocalSend | PairDrop / Snapdrop | WeTransfer |
@@ -48,7 +57,7 @@ Apache 2.0 license.
 | Files leave your network | Never | Never | Never | Yes — uploaded to their cloud |
 | Size limit | Your disk | Your disk | Varies | Capped by plan |
 | Files stay available after transfer | Yes — a shared board | No, one-shot | No, one-shot | Until the link expires |
-| Admin controls for an office | Yes — host console | No | No | Paid plans |
+| Admin controls for an office | Yes — host console, private mode, approvals | No | No | Paid plans |
 | Accounts required | None | None | None | For most features |
 
 MeghXL takes the **hub-and-spoke** approach rather than peer-to-peer: one computer
@@ -65,75 +74,94 @@ one machine has to be on, and in exchange nobody else installs anything.
 
 ## Features
 
+**Sharing**
+
 - **Drag and drop** — or click, or paste from the clipboard — to share a file.
 - **Live dashboard** — a public file dropped on one device appears on every other
-  open dashboard within a second, over WebSocket.
-- **Instant QR and link** for every file, plus a "scan to join" QR for the
-  dashboard itself — shown in the terminal and in the UI.
-- **Public or private, per file** — public files appear on the shared dashboard;
-  private files are reachable only through their unguessable link or QR.
-- **One-time links (burn after download)** — share a file that deletes itself the
-  moment it is downloaded once.
-- **Auto-expiry** — make any private link self-destruct after a set time.
-- **Shared clipboard** — a text box whose notes sync live across all devices, for
-  pasting a URL, a code, or a Wi-Fi password between machines.
-- **Any size, and interruptions are fine** — uploads go in pieces and carry on
+  open dashboard within a second.
+- **Public, private, or to one device** — public files appear on the shared
+  board; private files only through their unguessable link or QR; a direct send
+  goes straight to one device.
+- **One-time links and auto-expiry** — a file that deletes itself after one
+  download, or after a set time.
+- **Any size, and interruptions are fine** — uploads go up in pieces and carry on
   where they stopped if a phone locks its screen or the Wi-Fi drops; downloads
-  support HTTP Range, so they resume too.
-- **"Can phones reach this computer?"** — a one-tap connection test in the host
-  console that tells you what to change (Windows network set to Public,
-  firewall) when a phone can't connect.
-- **Friendly name (mDNS)** — reachable at `http://meghxl.local:3000`; bookmark it
-  once per device and it is one click forever.
-- **LAN-only by design** — MeghXL never exposes itself to the internet. For
-  remote access, put it behind your own VPN or authenticated reverse proxy and
-  set `PUBLIC_BASE_URL` (so links/QRs point at that address).
-- **Private mode for shared Wi-Fi** — in a café, office or hotel, the host can
-  require devices to join with an invite QR or a 6-digit code first, approve
-  each new device and each name change, and see it all in an activity log.
-- **Upload limits** — the host picks a largest-file size and a total storage
-  budget for other devices; phones see the limit before they start.
+  resume too.
+- **Shared message board** — post a note to everyone, or a private message to one
+  device: a clipboard for URLs, codes and Wi-Fi passwords.
+- **Instant QR codes** for every file and for joining the board.
+
+**Running the hub**
+
+- **One host, and it proves it** — the desktop app on other computers pairs with
+  the host once and refuses any other computer that claims to be MeghXL. A
+  recovery key restores the host on new hardware; the host can be moved to
+  another computer on purpose — never taken over.
+- **Host console** — connected devices, files, announcements, blocking, settings
+  and an activity log, on the host computer only.
+- **Private mode for shared Wi-Fi** — in a café, office or hotel, devices join
+  with the host's QR code or a 6-digit code first; optionally the host approves
+  each new device and each name change.
+- **Upload limits** — a largest-file size and a total storage budget for other
+  devices, and a disk-space reserve so nobody can fill the host's drive.
+- **"Can phones reach this computer?"** — a one-tap connection test that tells
+  you what to change (Windows network set to Public, firewall) when a phone
+  can't connect.
 - **One name per computer** — Safari, Chrome and Firefox on the same Mac show up
   as one device, and a file sent to it reaches all of them.
-- **One host, and it proves it** — the desktop app pairs with the host once and
-  refuses any other computer that claims to be MeghXL. A recovery key restores
-  the host on new hardware, and the host can be moved to another computer on
-  purpose — never taken over.
-- **Program warnings** — apps, installers and scripts are labelled, a program
+- **Always on** — start at login, and the desktop app keeps the host from going
+  to sleep while it hosts.
+- **Friendly name** — reachable at `http://meghxl.local:3000`.
+
+**Safety**
+
+- **Program warnings** — apps, installers and scripts are labelled; a program
   disguised as a photo or PDF is called out, and saving one asks first. The
   desktop app marks received files so macOS and Windows check them before they
   open.
-- **Always-on mode** — one command makes a "mother PC" serve on every boot.
-- **Host console** — a private `/admin` page on the host PC to see connected
-  devices, block or unblock them, broadcast announcements, and manage files.
-- **Shared message board** — post a note to everyone on the network, or send a
-  private message to one device. Both appear live.
-- **In-app updates** — the About page (and the desktop tray) can check GitHub for
-  a new release and show its changelog. The desktop app downloads and installs
-  signed updates itself. It only ever checks when you press the button.
-- **Tiny and readable** — a vanilla front-end with no build step, seven runtime
-  dependencies, and a single `node server.js`.
+- **LAN-only by design** — MeghXL never exposes itself to the internet.
+- **Signed apps and signed updates** — the Mac app is notarized by Apple, the
+  Windows app is signed, and in-app updates install only packages signed with the
+  project's key. MeghXL checks for updates only when you press the button.
+- See [How secure is MeghXL?](#how-secure-is-meghxl) for the full picture.
+
+**Small and readable** — a vanilla front-end with no build step, seven runtime
+dependencies, and a single `node server.js`.
 
 ## Download
 
-Only the computer acting as the hub needs this — every other device just opens a
-browser. No Node.js required.
+Install it on the computer that will be the **host**. Every other device just
+opens a browser — or, on other computers, the same app joins the host.
 
-| Platform | File | Notes |
-|----------|------|-------|
-| macOS (Apple Silicon) | [Download .dmg](https://github.com/riponcm/MeghXL/releases/latest) | M1/M2/M3/M4 Macs |
-| macOS (Intel) | [Download .dmg](https://github.com/riponcm/MeghXL/releases/latest) | x64 build |
-| Windows 10/11 (x64) | [Download installer](https://github.com/riponcm/MeghXL/releases/latest) | NSIS `.exe` or `.msi` |
-| Linux (x64) | [Download .deb / .rpm](https://github.com/riponcm/MeghXL/releases/latest) | Debian/Ubuntu, Fedora/openSUSE |
+| Your computer | Package | Download |
+|---|---|---|
+| **Windows** 10/11 — x64 | EXE installer (or MSI) | [Download for Windows](https://github.com/riponcm/MeghXL/releases/download/v1.1.0/MeghXL_1.1.0_x64-setup.exe) · [MSI](https://github.com/riponcm/MeghXL/releases/download/v1.1.0/MeghXL_1.1.0_x64_en-US.msi) |
+| **Mac with Apple Silicon** (M1, M2, M3, M4…) | DMG | [Download for Apple Silicon](https://github.com/riponcm/MeghXL/releases/download/v1.1.0/MeghXL_1.1.0_aarch64.dmg) |
+| **Mac with Intel** | DMG | [Download for Intel Mac](https://github.com/riponcm/MeghXL/releases/download/v1.1.0/MeghXL_1.1.0_x64.dmg) |
+| **Linux** — x64 | DEB / RPM | [DEB](https://github.com/riponcm/MeghXL/releases/download/v1.1.0/MeghXL_1.1.0_amd64.deb) · [RPM](https://github.com/riponcm/MeghXL/releases/download/v1.1.0/MeghXL-1.1.0-1.x86_64.rpm) |
 
-Every installer is fully self-contained — the server is compiled in, so there is no
-runtime to install. Open it and the dashboard appears; a tray icon keeps it running.
-The app checks for updates when you ask it to, and installs signed releases in place.
+[Release notes](https://github.com/riponcm/MeghXL/releases/tag/v1.1.0) · [All releases](https://github.com/riponcm/MeghXL/releases)
 
-The macOS app is signed with an Apple Developer ID and notarized by Apple, and the
-Windows installers and app are signed through Azure Artifact Signing, so both open
-without "unidentified developer" warnings. (A newly signed Windows publisher can still
-see a SmartScreen notice until enough people have installed it.)
+Every installer is self-contained — the server is compiled in, so there is no
+runtime to install (26–40 MB). Open it and the dashboard appears; a tray icon keeps
+it running.
+
+**Signed.** The Mac app is signed with an Apple Developer ID and notarized by Apple;
+the Windows app, its server and both installers are signed through Azure Artifact
+Signing. They open without "unidentified developer" warnings. (A newly signed
+Windows publisher can still see a SmartScreen notice until enough people have
+installed it.)
+
+<a id="linux"></a>**Linux:** install the package for your distribution —
+
+```bash
+sudo apt install ./MeghXL_1.1.0_amd64.deb       # Debian, Ubuntu, Mint
+sudo dnf install ./MeghXL-1.1.0-1.x86_64.rpm    # Fedora, RHEL, openSUSE (zypper)
+```
+
+> Used the 1.0.1 **AppImage**? Install the `.deb` or `.rpm` once; the in-app
+> updater keeps it current from then on. (AppImage is paused: building one breaks
+> the bundled server — [tauri#5189](https://github.com/tauri-apps/tauri/issues/5189).)
 
 ## How to use it
 
@@ -142,8 +170,12 @@ Three steps. Only **one** computer installs anything.
 ### 1. Pick one computer to be the hub
 
 This is the machine everyone shares through — an office PC, a spare laptop, a
-Mac in the corner. Install MeghXL on it from [Download](#download) above and open
-it. That's the whole setup.
+Mac in the corner. Install MeghXL on it from [Download](#download) above, open it,
+and choose **This computer is the host**. That's the whole setup.
+
+There is only ever **one** host. If MeghXL is installed on another computer too,
+choose **Join the host** there: the app finds the host, shows its fingerprint to
+compare with the host's screen, and from then on only ever talks to that host.
 
 You'll see the dashboard, and the app shows the address other devices should use:
 
@@ -186,6 +218,10 @@ That's it. Files download to each device normally; nothing else to install.
 - Turn on **Start at login** in the tray menu, so the hub is always ready.
 - Open the **Host console** (visible only on the hub) to see connected devices,
   post an announcement, or clear old files.
+- In **Host console → Settings → Host computer**, save the **recovery key**
+  somewhere safe. If the hub's computer ever dies, it makes a new one the same
+  host.
+- On shared Wi-Fi (office, café), turn on **private mode** in the same Settings.
 
 ## Quickstart (from source)
 
@@ -223,8 +259,9 @@ Drop a file on one device, grab it on another.
 
 1. The server binds to `0.0.0.0` so every device on your LAN can reach it, and
    auto-detects your IPv4 to build shareable links.
-2. Uploads stream to `uploads/` under a random filename; the original name, size,
-   type, and a random **token** are recorded in `metadata.json`.
+2. Uploads arrive in pieces (so they can resume) and are stored in `uploads/` under
+   a random filename; the original name, size, type, and a random **token** are
+   recorded in `metadata.json`.
 3. The token is the access control: `GET /d/<token>` serves the file. Public files
    are also listed on the dashboard; private files never appear in any list.
 4. A WebSocket fans out `file-added` / `file-removed` / `note-added` events so
@@ -272,9 +309,18 @@ curl -X POST -H "x-admin-key: $KEY" -H "x-meghxl-request: 1" \
      http://hub:3000/api/admin/announce
 ```
 
-From the console you can manage **devices** (block/unblock, send a file), broadcast
-**announcements**, manage every **file**, and adjust **settings** (default expiry).
-Device names, blocks, and announcements persist across restarts.
+From the console you can:
+
+- **Devices** — see who is connected, send a file, block or unblock, and let in
+  devices or name changes waiting for approval.
+- **Files** and **announcements** — manage every file, broadcast a banner.
+- **Activity** — joins, approvals, renames, blocks, refused uploads, wrong codes.
+- **Settings** — private mode and its join code, approvals, upload limits,
+  refusing programs, default expiry, the connection test, a diagnostic report for
+  bug reports, and the **host computer**: its fingerprint, recovery key, settings
+  backup, and moving the host to another computer.
+
+Everything persists across restarts.
 
 ## Remote access (advanced)
 
@@ -326,12 +372,19 @@ npm install
 npm run build        # → desktop/src-tauri/target/release/bundle/
 ```
 
-You get `MeghXL.app` and a `.dmg` on macOS, and an `.msi` / NSIS installer on
-Windows. It weighs about **25 MB** — the server is compiled into a single
-executable with `bun build --compile` and bundled as a Tauri sidecar, so there
-is no runtime to install.
+You get `MeghXL.app` and a `.dmg` on macOS, an `.msi` / NSIS installer on
+Windows, and `.deb` / `.rpm` on Linux. Downloads are 26–40 MB — the server is
+compiled into a single executable with `bun build --compile` and bundled as a
+Tauri sidecar, so there is no runtime to install.
 
 What the app adds over `npm start`:
+
+- **Host or join** — on first launch, choose whether this computer is the host or
+  joins the host. A joining computer runs no server; it pairs with the host's key
+  and refuses anything else claiming to be MeghXL, showing a warning instead.
+- **Keeps the host awake** while it hosts (can be turned off in the menu).
+- **Saves downloads safely** — to the folder you choose, marked as downloaded so
+  macOS and Windows check them before they open.
 
 - **Tray icon** — open the dashboard or host console, copy the network link, or
   toggle **Start at login**. Closing the window parks MeghXL in the tray; the
@@ -353,16 +406,23 @@ Windows — build each on its own machine, or use a CI matrix.
 
 ## Roadmap
 
-MeghXL is just getting started. On the way:
+Done recently:
 
-- [x] **Native desktop app (macOS / Windows)** — Tauri shell with a tray icon, no Node.js needed
-- [ ] **Signed and notarized releases**, so the installers open without a warning
-- [ ] **Android and iOS apps**, with share-sheet sending
+- [x] **Native desktop app** for macOS, Windows and Linux, with a tray icon
+- [x] **Signed and notarized releases** (Apple notarization, Windows signing)
+- [x] **Security hardening** — private mode, approvals, device identity, limits
+- [x] **One host with a verifiable identity**, recovery key and planned moves
+- [x] **Resumable uploads** that survive a phone locking its screen
+- [x] **One name per computer** — a machine's browsers grouped as one device
+- [x] **Connection test** and diagnostic report
+
+Next:
+
+- [ ] **Android and iOS apps**, with share-sheet sending — and host verification on phones
+- [ ] **HTTPS on the LAN** with your own certificate, for networks you don't trust
 - [ ] **End-to-end encryption** for private transfers
-- [ ] **Share-sheet sending** straight from your phone
-- [ ] **Transfer history** with resume
 - [ ] **Optional auth layer** for `PUBLIC_BASE_URL` deployments (password / SSO)
-- [ ] **Group devices by PC** — merge a machine's browsers into one device (by LAN IP, named by OS) instead of one entry per browser; native apps will enable true per-device identity
+- [ ] **AppImage** again, once Tauri can package the server without breaking it
 - [ ] **Multi-language UI** — English, বাংলা (Bengali), हिन्दी (Hindi), and more
 - [ ] **Themes** — light, dark, and custom accent colors
 
@@ -371,8 +431,8 @@ Want a say in what ships next? **Watch → Custom → Releases** and open an iss
 ## Support the project
 
 If MeghXL saves you time, a star genuinely helps it reach more people — and
-**Watch → Releases** is the easiest way to hear the moment the **native mobile and
-desktop apps** drop.
+**Watch → Releases** is the easiest way to hear the moment the **mobile apps**
+drop.
 
 <p align="center">
   <a href="https://github.com/riponcm/MeghXL/stargazers"><img alt="Star this repo" src="https://img.shields.io/github/stars/riponcm/MeghXL?style=for-the-badge&logo=github&color=6366f1&labelColor=14141a"></a>
@@ -401,26 +461,46 @@ bundle, so a compromised download cannot push you malicious code.
 Don't want it at all? Delete `src/routes/update.js` and its `app.use` line in
 `server.js`. Nothing else depends on it.
 
-## Security and trust model
+## How secure is MeghXL?
 
-> **Full policy:** see **[SECURITY.md](./SECURITY.md)** for the complete threat
-> model, how to report a vulnerability, and a 10-minute checklist to **audit the
-> code yourself** (no telemetry, no install scripts, no dynamic code execution).
+Short answer: **built to be safe on a network with strangers on it, honest about
+what it can't do, and checked by people trying to break it.**
 
-MeghXL assumes **your local network is trusted**. On the LAN, anyone who can reach
-the URL can see and download public files, post clipboard notes, and upload — that
-is the point of a same-network sharing tool.
+**How it was tested.** Before 1.1.0, the hub went through a four-way security
+review — a code audit, a threat model, a look at disguised-malware tricks, and a
+live attack run against a real server — then an independent review of the fixes.
+Every attack found became a test: the suite has nearly a hundred, including
+crashing the server, impersonating a device, sneaking past private mode, hiding a
+program in a zip, and overrunning the disk. Vulnerabilities are disclosed
+publicly in [security advisories](https://github.com/riponcm/MeghXL/security/advisories).
 
-What it protects against:
+**What it protects against:**
 
-- **Path traversal** — client filenames never touch the filesystem; downloads are
-  served only by random token to a server-generated stored name, with a
-  containment check.
-- **Guessing private links** — tokens are 128-bit, URL-safe random strings.
-- **Memory exhaustion** — uploads stream to disk; request bodies are size-capped.
+| If someone tries to… | What stops them |
+|---|---|
+| Reach the hub from the internet | It never exposes itself; unknown host names are refused (DNS rebinding) |
+| Use a website on the host PC to control it | Cross-site requests, framing and cross-site WebSockets are refused |
+| Get into the host console | Only the host computer, an `ADMIN_IP`, or the admin key — wrong keys are throttled |
+| Join a private hub | Private mode: the host's QR code or 6-digit code; optional approval of each device |
+| Pretend to be another device | Device ids are secret; others only see a stand-in that can't be used to impersonate |
+| Pretend to be the host | Host-like names are marked; desktop apps check the host's signing key; the host alerts on impostors |
+| Delete someone else's files | Only the device that shared it, or the host |
+| Keep going after being blocked | A block covers every request, not just the live connection |
+| Crash the hub or fill its disk | Message size caps, rate limits, connection caps, upload limits, a disk reserve |
+| Disguise a program as a photo | Real extension always shown; content checked; a warning before saving; optional refusal |
+| Read a private file | 128-bit unguessable links; files are never listed |
+| Tamper with an update | Updates install only if signed with the project's key |
 
-For sensitive files, use a **private** share with an **expiry** and/or a
-**one-time** download.
+**What it doesn't do — stated plainly:** traffic on the LAN is plain HTTP (not
+encrypted), so someone able to intercept your network could read transfers; a
+phone's browser can't verify the host's identity the way the desktop app can; and
+MeghXL doesn't scan files for malware — it says what a file *is*, never that it's
+safe. On a network you don't control, use private mode and keep sensitive files
+to private, expiring links.
+
+Full details: **[SECURITY.md](./SECURITY.md)** — the threat model, how to report a
+vulnerability, and a 10-minute checklist to audit the code yourself (no
+telemetry, no install scripts, no dynamic code execution).
 
 ## Development
 
@@ -461,9 +541,9 @@ uploaded to any cloud, and no account or sign-in exists.
 
 ### How do I send a large file — 1 GB, 10 GB, more?
 
-There is no size limit beyond your disk. Uploads stream straight to disk instead of
-being buffered in memory, and downloads support HTTP Range, so they resume rather
-than restarting.
+There is no size limit beyond your disk (unless the host sets one). Uploads go up in
+pieces and pick up where they stopped after an interruption, and downloads
+support HTTP Range, so they resume rather than restarting.
 
 ### Can I share a file with just one person instead of everyone?
 
@@ -473,13 +553,13 @@ make it a **one-time link** that deletes itself after a single download.
 
 ### Is it safe to use at the office?
 
-MeghXL is designed for a network you already trust. Anyone who can reach the URL can
-see public files and post messages, so treat it like a shared drive. The host console —
-device blocking, announcements, file management — is limited to the machine running the
-server, an `ADMIN_IP`, or the admin key, and since 1.0.1 it also refuses requests that
-websites open on the host PC try to make on its behalf. Device names and direct sends
-are not authenticated between LAN devices. For anything sensitive, use a private link
-with an expiry, and keep MeghXL up to date. See [SECURITY.md](./SECURITY.md).
+Yes, with the right settings. Turn on **private mode** so only people with the
+host's QR code or join code get in, and optionally **approve each new device**.
+Devices can't impersonate each other or delete each other's files, blocked
+devices are locked out completely, and programs are flagged before anyone saves
+them. Traffic isn't encrypted on the LAN, so on a network you don't trust, keep
+sensitive files to private, expiring links. See
+[How secure is MeghXL?](#how-secure-is-meghxl).
 
 ### Do I need to install anything on phones?
 
