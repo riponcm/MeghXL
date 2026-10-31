@@ -31,13 +31,14 @@ jobs:
       matrix:
         include:
           - label: macOS (Apple Silicon)
-            os: macos-14
+            os: macos-15
             target: aarch64-apple-darwin
           - label: macOS (Intel)
             # Cross-compiled on Apple Silicon: GitHub's last Intel image
             # (macos-13) left this job queued forever, and an Intel build made
             # anywhere but CI couldn't be signed and notarized with the others.
-            os: macos-14
+            # (macos-14 is retired on 2026-11-02.)
+            os: macos-15
             target: x86_64-apple-darwin
           - label: Windows (x64)
             os: windows-latest
