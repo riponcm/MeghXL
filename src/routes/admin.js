@@ -6,6 +6,7 @@ const config = require('../config');
 const store = require('../store');
 const { getShareBase } = require('../baseUrl');
 const { isAdmin, requireAdmin } = require('../admin-auth');
+const join = require('../join');
 
 function sanitize(s, max) {
   let out = '';
@@ -42,6 +43,7 @@ module.exports = function createAdminRouter({ hub, files }) {
         port: config.port,
         mdnsName: config.mdnsEnabled ? `${config.mdnsName}.local` : null,
         maxUploadMb: config.maxUploadMb,
+        minFreeMb: config.minFreeMb,
         uptimeSec: Math.round(process.uptime()),
         shareBase: getShareBase(),
       },
@@ -113,6 +115,7 @@ module.exports = function createAdminRouter({ hub, files }) {
         consumed: !!f.consumed,
         downloadCount: f.downloadCount,
         fromName: f.fromName || null,
+        risk: f.risk || null,
         downloadUrl: `${getShareBase()}/d/${f.token}`,
       }));
     res.json({ files: list });
@@ -132,16 +135,43 @@ module.exports = function createAdminRouter({ hub, files }) {
     res.json({ ok: true, removed });
   });
 
-  // POST /api/admin/settings { defaultExpiryMinutes?, linkHost? }
+  // POST /api/admin/settings { defaultExpiryMinutes?, linkHost?, privateMode?, blockPrograms? }
   //   linkHost: 'ip' (default — works on every device) or 'friendly' (share
   //   links + QRs use the mDNS name, keeping the IP off screen).
+  //   privateMode: only invited devices can use the hub (see src/join.js).
+  //   blockPrograms: refuse uploads that are programs or scripts.
   router.post('/api/admin/settings', requireAdmin, (req, res) => {
     const partial = {};
     const body = req.body || {};
     const exp = parseInt(body.defaultExpiryMinutes, 10);
     if (Number.isFinite(exp) && exp >= 0) partial.defaultExpiryMinutes = Math.min(exp, 7 * 24 * 60);
     if (body.linkHost === 'ip' || body.linkHost === 'friendly') partial.linkHost = body.linkHost;
-    res.json({ settings: store.setSettings(partial) });
+    if (typeof body.blockPrograms === 'boolean') partial.blockPrograms = body.blockPrograms;
+    const turningPrivate = body.privateMode === true && !join.isEnabled();
+    if (typeof body.privateMode === 'boolean') partial.privateMode = body.privateMode;
+    const settings = store.setSettings(partial);
+    // Devices already on the board without having joined are sent to the join
+    // screen; the ones that joined earlier (and the host) stay.
+    if (turningPrivate) {
+      join.current();
+      hub.kickUnjoined((ws) => ws.joinedAtConnect);
+    }
+    res.json({ settings });
+  });
+
+  // GET /api/admin/join — the code and invite secret, for the host to share.
+  router.get('/api/admin/join', requireAdmin, (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const j = join.current();
+    res.json({ privateMode: join.isEnabled(), code: j.code, secret: j.secret, joined: Object.keys(j.sessions).length });
+  });
+
+  // POST /api/admin/join/rotate — new code and invite link; everyone who
+  // joined before has to join again (the host is never affected).
+  router.post('/api/admin/join/rotate', requireAdmin, (req, res) => {
+    const j = join.rotate();
+    if (join.isEnabled()) hub.kickUnjoined(() => false);
+    res.json({ code: j.code, secret: j.secret, joined: 0 });
   });
 
   return { router };

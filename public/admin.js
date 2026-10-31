@@ -34,6 +34,8 @@ const ICONS = {
   refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
   megaphone: '<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
   file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
+  alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
 };
 function icon(name, size = 18) {
   const t = document.createElement('template');
@@ -107,7 +109,7 @@ function showDenied(info) {
   
   if (state.key) {
     state.key = null;
-    localStorage.removeItem('meghxl_admin_key');
+    sessionStorage.removeItem('meghxl_admin_key');
     const errEl = $('#admin-key-err');
     if (errEl) errEl.textContent = 'Session or key invalid. Please re-enter key.';
   }
@@ -260,12 +262,14 @@ async function renderFiles() {
 function fileRow(f, first) {
   const tags = [h('span', { class: 'badge', text: f.visibility })];
   if (f.oneTime) tags.push(h('span', { class: 'badge warn', text: 'one-time' }));
-  if (f.fromName) tags.push(h('span', { class: 'badge', text: 'to a device' }));
+  if (f.visibility === 'direct') tags.push(h('span', { class: 'badge', text: 'to a device' }));
+  if (f.risk) tags.push(h('span', { class: 'badge risk', title: f.risk.mismatch || f.risk.label, text: f.risk.mismatch ? 'disguised program' : 'program' }));
   return h('div', { class: 'adm-row' + (first ? ' first' : '') },
-    h('div', { class: 'adm-ic' }, icon('file', 20)),
+    h('div', { class: 'adm-ic', style: f.risk ? 'color:var(--danger)' : null }, icon(f.risk ? 'alert' : 'file', 20)),
     h('div', { class: 'adm-body' },
       h('div', { class: 'adm-name', text: f.originalName }),
-      h('div', { class: 'adm-meta' }, `${fmtSize(f.size)} · ${f.downloadCount} downloads · ${fmtAge(f.createdAt)} `, h('span', { class: 'badges' }, ...tags)),
+      h('div', { class: 'adm-meta' }, `${fmtSize(f.size)} · ${f.downloadCount} downloads · ${fmtAge(f.createdAt)}${f.fromName ? ' · by ' + f.fromName : ''} `, h('span', { class: 'badges' }, ...tags)),
+      f.risk ? h('div', { class: 'risk-line', text: (f.risk.mismatch || f.risk.label) + (f.risk.inner ? ` (${f.risk.inner})` : '') }) : null,
     ),
     h('div', { class: 'adm-actions' },
       h('a', { class: 'btn small ghost', href: f.downloadUrl, download: f.originalName, title: 'Download' }, 'Open'),
@@ -325,6 +329,7 @@ function renderSettings() {
       s.mdnsName ? kv('Friendly name', `http://${s.mdnsName}:${s.port}`) : null,
       ipRow(s),
       kv('Max upload', `${s.maxUploadMb ? s.maxUploadMb + ' MB' : 'No limit'}  (set MAX_UPLOAD_MB to change)`),
+      kv('Disk reserve', `Uploads stop when less than ${fmtSize((s.minFreeMb || 0) * 1024 * 1024)} would be left free  (set MIN_FREE_MB to change)`),
     ].filter(Boolean)),
 
     panel('Links and QR codes', 'Which address goes into share links and QR codes', [
@@ -332,6 +337,13 @@ function renderSettings() {
       s.mdnsName ? linkChoice('friendly', `Friendly name — ${s.mdnsName}`,
         'Keeps the IP off screen. iPhone, Mac and Windows resolve it; many Android phones do not.', d.settings.linkHost) : null,
     ].filter(Boolean)),
+
+    privatePanel(d),
+
+    panel('Programs', 'Apps, installers and scripts shared on this hub', [
+      toggleRow('Refuse programs', 'Uploads that are programs — .exe, .dmg, .pkg, scripts, or a program renamed to look like a photo or PDF — are rejected. Off: they are allowed but clearly labelled, and everyone is asked before saving one. You can always share them from this computer.',
+        !!d.settings.blockPrograms, (on) => saveSetting({ blockPrograms: on }, on ? 'Programs will be refused' : 'Programs allowed, with a warning')),
+    ]),
 
     panel('Default expiry', 'Applies to new public/private uploads (0 = never)',
       [h('div', { style: 'display:flex;gap:8px;align-items:center' }, expiryInput,
@@ -346,6 +358,69 @@ function renderSettings() {
         h('div', { class: 'adm-meta', text: 'Delete every file on the server.' }),
         h('button', { class: 'btn small ghost danger', type: 'button', onclick: clearAllFiles }, icon('trash', 15), 'Clear all files'))]),
   );
+}
+
+// Private mode: who may use the hub. The code and invite QR are fetched only
+// when the panel is drawn, and never shown on the shared dashboard.
+let joinInfo = null;
+function privatePanel(d) {
+  const on = !!d.settings.privateMode;
+  const rows = [
+    toggleRow('Private mode', 'Only devices you invite can see or send anything. Use it on shared Wi-Fi — a café, office or hotel. This computer never needs to join, and download links keep working.',
+      on, (v) => saveSetting({ privateMode: v }, v ? 'Private mode on — devices that have not joined were disconnected' : 'Private mode off — anyone on this network can join').then(() => { joinInfo = null; })),
+  ];
+  if (on) {
+    const box = h('div', { class: 'join-box' }, h('div', { class: 'adm-meta', text: 'Loading…' }));
+    rows.push(box);
+    const paint = (j) => {
+      const link = `${state.data.server.shareBase}/#join=${j.secret}`;
+      const img = h('img', { class: 'join-qr', alt: 'Invite QR code', width: '168', height: '168', src: `/api/qr?text=${encodeURIComponent(link)}` });
+      box.replaceChildren(
+        img,
+        h('div', { class: 'join-side' },
+          h('div', { class: 'adm-meta', text: 'Join code' }),
+          h('div', { class: 'join-code', text: j.code.replace(/(\d{3})(\d{3})/, '$1 $2') }),
+          h('div', { class: 'adm-meta', text: `${j.joined} device${j.joined === 1 ? '' : 's'} joined. Scanning the QR joins instantly; the code works from any browser on the network.` }),
+          h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-top:10px' },
+            h('button', { class: 'btn small ghost', type: 'button', onclick: () => copy(link) }, 'Copy invite link'),
+            h('button', { class: 'btn small ghost danger', type: 'button', onclick: rotateJoin }, 'New code — remove everyone')),
+        ),
+      );
+    };
+    if (joinInfo) paint(joinInfo);
+    else api('/api/admin/join').then((j) => { joinInfo = j; paint(j); }).catch((e) => toast(e.message, 'danger'));
+  }
+  return panel('Who can join', on ? 'Private' : 'Anyone on this network', rows);
+}
+function rotateJoin() {
+  if (!confirmAction('Make a new code? Every device that joined will be disconnected and must join again with the new code.')) return;
+  api('/api/admin/join/rotate', { method: 'POST' })
+    .then((j) => { joinInfo = { ...j, joined: 0 }; toast('New code ready', 'good'); renderSection(); })
+    .catch((e) => toast(e.message, 'danger'));
+}
+// window.confirm can be unavailable inside the desktop app's webview; treat
+// that as "yes" only for non-destructive prompts. This one is destructive, so
+// a missing dialog means the user simply can't confirm — use the button twice.
+let pendingConfirm = null;
+function confirmAction(message) {
+  try { return window.confirm(message); } catch { /* fall through */ }
+  if (pendingConfirm === message) { pendingConfirm = null; return true; }
+  pendingConfirm = message;
+  toast('Click again to confirm', 'danger');
+  return false;
+}
+function toggleRow(label, help, checked, onChange) {
+  const input = h('input', { type: 'checkbox', checked: checked ? 'checked' : null });
+  // Let go of focus: the console doesn't redraw while a field is focused, and
+  // this panel should redraw to show the result.
+  input.addEventListener('change', () => { input.blur(); onChange(input.checked); });
+  return h('label', { class: 'toggle-row' }, input,
+    h('div', {}, h('div', { class: 'toggle-label', text: label }), h('div', { class: 'adm-meta', text: help })));
+}
+function saveSetting(body, okMessage) {
+  return api('/api/admin/settings', { method: 'POST', body })
+    .then(() => { toast(okMessage || 'Saved', 'good'); refresh(); })
+    .catch((e) => toast(e.message, 'danger'));
 }
 
 // ---------- small builders ----------
@@ -434,13 +509,16 @@ function pickAndSend(d) {
   document.body.append(inp);
   inp.addEventListener('change', () => {
     [...inp.files].forEach((file) => {
+      // Sends are addressed by the device's handle; the hub names the sender
+      // "Host" because the request comes from this computer.
       const fd = new FormData();
-      fd.append('to', d.id);
-      fd.append('fromName', 'Host console');
+      fd.append('to', d.handle);
       fd.append('file', file);
-      fetch('/api/upload', { method: 'POST', body: fd })
-        .then((r) => r.json()).then(() => toast(`Sent to ${d.name}`, 'good'))
-        .catch(() => toast('Send failed', 'danger'));
+      const headers = state.key ? { 'x-admin-key': state.key } : {};
+      fetch('/api/upload', { method: 'POST', body: fd, headers })
+        .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Send failed'); })
+        .then(() => toast(`Sent to ${d.name}`, 'good'))
+        .catch((e) => toast(e.message || 'Send failed', 'danger'));
     });
     inp.remove();
   });
@@ -462,10 +540,14 @@ document.querySelectorAll('.admin-nav[data-section]').forEach((btn) => {
   const fromUrl = url.searchParams.get('key');
   if (fromUrl) {
     state.key = fromUrl;
-    localStorage.setItem('meghxl_admin_key', fromUrl);
+    sessionStorage.setItem('meghxl_admin_key', fromUrl);
     history.replaceState(null, '', location.pathname);
   } else {
-    const stored = localStorage.getItem('meghxl_admin_key');
+    // Older versions kept the key in localStorage for good; move it to this
+    // tab's session, so it's gone when the tab closes.
+    const legacy = localStorage.getItem('meghxl_admin_key');
+    if (legacy) { sessionStorage.setItem('meghxl_admin_key', legacy); localStorage.removeItem('meghxl_admin_key'); }
+    const stored = sessionStorage.getItem('meghxl_admin_key');
     if (stored) {
       state.key = stored;
     }
@@ -494,7 +576,7 @@ document.querySelectorAll('.admin-nav[data-section]').forEach((btn) => {
       state.key = key;
       try {
         state.data = await api('/api/admin/state');
-        localStorage.setItem('meghxl_admin_key', key);
+        sessionStorage.setItem('meghxl_admin_key', key);
         showConsole();
         renderSideStatus();
         renderSection();

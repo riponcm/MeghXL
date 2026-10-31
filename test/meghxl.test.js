@@ -25,14 +25,37 @@ const lanIp = () => detectLanIPv4();
 
 const runtime = require('../src/runtime');
 
+const store = require('../src/store');
+const config = require('../src/config');
+const disk = require('../src/disk');
+const { handleOf } = require('../src/identity');
+
+// Devices the stub hub treats as online, by handle -> id.
+const online = new Map();
+const sent = []; // [handle, type, payload] for every sendToDevice
+
 // stub hub — no real WebSocket needed
 const { app } = buildApp({
   broadcast() {},
-  sendToDevice() {},
+  sendToDevice(handle, type, payload) { sent.push([handle, type, payload]); return online.has(handle) ? 1 : 0; },
+  idOfHandle: (handle) => online.get(handle) || null,
   rosterDetailed: () => [],
   kickDevice: () => 0,
+  kickUnjoined: () => 0,
   broadcastRoster() {},
 });
+
+/** A device as the hub knows it: an id, a remembered name, and online. */
+function device(id, name) {
+  store.setDeviceName(id, name);
+  online.set(handleOf(id), id);
+  return { id, name, handle: handleOf(id) };
+}
+// A request as another device on the LAN sees it (not the host): the
+// forwarding header strips loopback trust. Distinct addresses keep the
+// per-address rate limits of one test from touching another.
+let lanSeq = 10;
+const lan = (req, ip = `10.0.0.${lanSeq++}`) => req.set('X-Forwarded-For', ip);
 
 // Collect the response body as raw bytes (supertest won't buffer octet-streams).
 function binaryParser(res, cb) {
@@ -125,15 +148,18 @@ test('unknown download token returns 404', async () => {
 });
 
 test('direct send to a device is hidden from the public list but downloadable by token', async () => {
-  const up = await request(app)
-    .post('/api/upload')
-    .field('to', 'device-xyz')
-    .field('fromName', 'Laptop')
+  const sender = device('sender-device-000001', 'Laptop');
+  const target = device('target-device-000001', 'Phone');
+  const up = await lan(request(app).post('/api/upload'))
+    .set('x-meghxl-device', sender.id)
+    .field('to', target.handle)
+    .field('fromName', 'The Boss') // ignored: the hub names the sender
     .attach('file', Buffer.from('direct hello'), { filename: 'direct.txt' });
 
   assert.equal(up.status, 200);
   assert.equal(up.body.visibility, 'direct');
   assert.equal(up.body.fromName, 'Laptop');
+  assert.deepEqual(sent.at(-1).slice(0, 2), [target.handle, 'file-sent']);
 
   const list = await request(app).get('/api/files');
   assert.ok(
@@ -435,15 +461,15 @@ test('WebSocket: X-Forwarded-For is trusted only from a proxy on this machine', 
   });
   const sockets = [];
   try {
-    sockets.push(await join(lanIp(), 'from-lan'));
-    sockets.push(await join('127.0.0.1', 'from-local-proxy'));
+    sockets.push(await join(lanIp(), 'from-lan-0000000001'));
+    sockets.push(await join('127.0.0.1', 'from-local-proxy-01'));
     const ipOf = (id) => {
       const dev = hub.rosterDetailed().find((d) => d.id === id);
       assert.ok(dev, `device ${id} must have identified`);
       return String(dev.ip).replace(/^::ffff:/, '');
     };
-    assert.equal(ipOf('from-lan'), lanIp(), 'a LAN device is recorded at its real address, not the one it claimed');
-    assert.equal(ipOf('from-local-proxy'), '127.0.0.1', 'a local reverse proxy is still believed');
+    assert.equal(ipOf('from-lan-0000000001'), lanIp(), 'a LAN device is recorded at its real address, not the one it claimed');
+    assert.equal(ipOf('from-local-proxy-01'), '127.0.0.1', 'a local reverse proxy is still believed');
   } finally {
     // ws v8's wss.close() leaves client connections open, and server.close()
     // waits for them — terminate both ends or the test process never exits.
@@ -459,6 +485,327 @@ test('long uploads are not cut off at five minutes, only when the connection goe
   assert.equal(server.requestTimeout, 0, 'no overall deadline on a request');
   assert.equal(server.timeout, 2 * 60 * 1000, 'but a silent connection is dropped');
   assert.ok(server.headersTimeout > 0, 'headers must still arrive promptly');
+});
+
+// ---------------------------------------------------------------------------
+// 1.0.2 hardening
+// ---------------------------------------------------------------------------
+
+/** Start a real server + hub on a random port. */
+async function liveHub() {
+  const server = tuneServer(http.createServer());
+  const hub = createHub(server);
+  const built = buildApp(hub);
+  server.on('request', built.app);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  const sockets = [];
+  const connect = (id, name) => new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { 'X-Forwarded-For': '10.1.1.1' } });
+    ws.inbox = [];
+    ws.on('message', (d) => ws.inbox.push(JSON.parse(d)));
+    ws.on('open', () => {
+      if (id) ws.send(JSON.stringify({ type: 'identify', deviceId: id, name, kind: 'desktop' }));
+      setTimeout(() => resolve(ws), 120);
+    });
+    ws.on('error', reject);
+    sockets.push(ws);
+  });
+  const close = async () => {
+    for (const ws of sockets) ws.terminate();
+    for (const c of hub.wss.clients) c.terminate();
+    hub.wss.close();
+    await new Promise((r) => server.close(r));
+  };
+  return { port, hub, connect, close };
+}
+
+test('WebSocket: an oversized frame closes that socket, not the server', async () => {
+  const live = await liveHub();
+  try {
+    const ws = await live.connect();
+    const closed = new Promise((r) => ws.on('close', (code) => r(code)));
+    ws.on('error', () => {});
+    ws.send(Buffer.alloc(200 * 1024, 97));
+    assert.equal(await closed, 1009, 'message too big');
+    const health = await request(`http://127.0.0.1:${live.port}`).get('/api/health');
+    assert.equal(health.status, 200, 'server still up');
+  } finally { await live.close(); }
+});
+
+test('WebSocket: a flood of messages gets the socket closed', async () => {
+  const live = await liveHub();
+  try {
+    const ws = await live.connect();
+    const closed = new Promise((r) => ws.on('close', (code) => r(code)));
+    for (let i = 0; i < 200; i++) ws.send(JSON.stringify({ type: 'noop' }));
+    assert.equal(await closed, 1008);
+  } finally { await live.close(); }
+});
+
+test('identity: the roster shows handles, and a handle cannot be used to impersonate', async () => {
+  const live = await liveHub();
+  try {
+    const alice = await live.connect('alice-device-0000000001', 'Alice');
+    const roster = alice.inbox.filter((m) => m.type === 'roster').at(-1).payload.devices;
+    const entry = roster.find((d) => d.name === 'Alice');
+    assert.ok(entry, 'alice listed');
+    assert.notEqual(entry.id, 'alice-device-0000000001', 'the device id itself is never broadcast');
+    assert.equal(entry.id, handleOf('alice-device-0000000001'));
+    const welcome = alice.inbox.find((m) => m.type === 'welcome');
+    assert.equal(welcome.payload.handle, entry.id, 'a device learns its own handle');
+
+    // An attacker identifies with the handle it saw in the roster…
+    const mallory = await live.connect(entry.id, 'Alice');
+    // …and a message to Alice still reaches only Alice.
+    const r = await request(`http://127.0.0.1:${live.port}`).post('/api/dm')
+      .set('X-Forwarded-For', '10.1.1.9').send({ to: entry.id, text: 'secret' });
+    assert.equal(r.body.delivered, 1);
+    await new Promise((res) => setTimeout(res, 80));
+    assert.ok(alice.inbox.some((m) => m.type === 'dm' && m.payload.text === 'secret'));
+    assert.ok(!mallory.inbox.some((m) => m.type === 'dm'), 'impersonator received nothing');
+  } finally { await live.close(); }
+});
+
+test('identity: a socket cannot switch to another device after identifying', async () => {
+  const live = await liveHub();
+  try {
+    const ws = await live.connect('first-device-000000001', 'First');
+    ws.send(JSON.stringify({ type: 'identify', deviceId: 'second-device-00000001', name: 'Second' }));
+    await new Promise((r) => setTimeout(r, 80));
+    const names = live.hub.rosterDetailed().map((d) => d.name);
+    assert.deepEqual(names, ['First']);
+  } finally { await live.close(); }
+});
+
+test('messages: the hub names the sender; a body cannot claim to be the host', async () => {
+  const bob = device('bob-device-00000000001', 'Bob');
+  const r = await lan(request(app).post('/api/notes'))
+    .set('x-meghxl-device', bob.id).send({ text: 'hi', fromName: 'Host (admin)' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.fromName, 'Bob');
+  const anon = await lan(request(app).post('/api/notes')).send({ text: 'hello', fromName: 'Host' });
+  assert.equal(anon.body.fromName, null, 'unknown senders are unnamed, not whoever they claim');
+
+  const target = device('dm-target-00000000001', 'Target');
+  const dm = await lan(request(app).post('/api/dm'))
+    .set('x-meghxl-device', bob.id).send({ to: target.handle, text: 'yo', fromName: 'Host', fromId: target.handle });
+  assert.equal(dm.status, 200);
+  const [, , payload] = sent.at(-1);
+  assert.equal(payload.fromName, 'Bob');
+  assert.equal(payload.fromId, bob.handle, 'replies go to the real sender');
+});
+
+test('device names that imitate the host are marked', () => {
+  const { cleanName } = require('../src/text');
+  assert.equal(cleanName('Host'), 'Host (device)');
+  assert.equal(cleanName('A.d.m.i.n'), 'A.d.m.i.n (device)');
+  assert.equal(cleanName('Hostel laptop'), 'Hostel laptop');
+});
+
+test('ownership: only the device that shared a file (or the host) can delete it', async () => {
+  const owner = device('owner-device-000000001', 'Owner');
+  const other = device('other-device-000000001', 'Other');
+  const up = await lan(request(app).post('/api/upload'))
+    .set('x-meghxl-device', owner.id).field('visibility', 'public')
+    .attach('file', Buffer.from('mine'), { filename: 'mine.txt' });
+  assert.equal(up.status, 200);
+  assert.equal(up.body.ownerHandle, owner.handle);
+
+  assert.equal((await lan(request(app).delete(`/api/files/${up.body.token}`))).status, 403, 'anonymous');
+  assert.equal((await lan(request(app).delete(`/api/files/${up.body.token}`)).set('x-meghxl-device', other.id)).status, 403, 'another device');
+  assert.equal((await lan(request(app).delete(`/api/files/${up.body.token}`)).set('x-meghxl-device', owner.id)).status, 200, 'owner');
+
+  const up2 = await lan(request(app).post('/api/upload')).set('x-meghxl-device', owner.id)
+    .field('visibility', 'public').attach('file', Buffer.from('x'), { filename: 'x.txt' });
+  assert.equal((await request(app).delete(`/api/files/${up2.body.token}`)).status, 200, 'the host can delete anything');
+});
+
+test('ownership: messages too', async () => {
+  const owner = device('note-owner-00000000001', 'Owner');
+  const note = await lan(request(app).post('/api/notes')).set('x-meghxl-device', owner.id).send({ text: 'mine' });
+  assert.equal((await lan(request(app).delete(`/api/notes/${note.body.id}`))).status, 403);
+  assert.equal((await lan(request(app).delete(`/api/notes/${note.body.id}`)).set('x-meghxl-device', owner.id)).status, 200);
+});
+
+test('blocking covers every request, not just the live connection', async () => {
+  store.addBlock({ deviceId: 'blocked-device-0000001', ip: null, name: 'x', at: Date.now() });
+  const byId = await lan(request(app).post('/api/notes')).set('x-meghxl-device', 'blocked-device-0000001').send({ text: 'hi' });
+  assert.equal(byId.status, 403);
+  assert.equal((await lan(request(app).get('/api/files')).set('x-meghxl-device', 'blocked-device-0000001')).status, 403);
+
+  store.addBlock({ deviceId: 'blocked-by-ip-00000001', ip: '10.66.66.66', name: 'y', at: Date.now() });
+  assert.equal((await lan(request(app).get('/api/files'), '10.66.66.66')).status, 403, 'blocked by address too');
+  // An address block lapses after a day: DHCP will have given it to someone else.
+  store.listBlocked().find((b) => b.ip === '10.66.66.66').at = Date.now() - 25 * 60 * 60 * 1000;
+  assert.equal((await lan(request(app).get('/api/files'), '10.66.66.66')).status, 200);
+  assert.equal((await request(app).get('/api/files').set('x-meghxl-device', 'blocked-device-0000001')).status, 200, 'never the host');
+});
+
+test('filenames: invisible and dangerous characters are removed, the extension kept', async () => {
+  const up = await request(app).post('/api/upload').field('visibility', 'public')
+    .attach('file', Buffer.from('x'), { filename: 'photo‮gpj.exe' });
+  assert.equal(up.body.originalName, 'photogpj.exe', 'no right-to-left override');
+  const long = await request(app).post('/api/upload').field('visibility', 'public')
+    .attach('file', Buffer.from('x'), { filename: 'a'.repeat(500) + '.pdf.exe' });
+  assert.ok(long.body.originalName.length <= 180);
+  assert.ok(long.body.originalName.endsWith('.exe'), 'truncation never hides the real extension');
+  const odd = await request(app).post('/api/upload').field('visibility', 'public')
+    .attach('file', Buffer.from('x'), { filename: "it's (draft)*.txt" });
+  const dl = await request(app).get(`/d/${odd.body.token}`);
+  assert.match(dl.headers['content-disposition'], /filename\*=UTF-8''it%27s%20%28draft%29_\.txt/);
+});
+
+test('programs are labelled — by extension, by content, and inside zips', async () => {
+  const exe = await request(app).post('/api/upload').field('visibility', 'public')
+    .attach('file', Buffer.from('MZ\x90\x00rest'), { filename: 'setup.exe', contentType: 'image/png' });
+  assert.equal(exe.body.risk.kind, 'windows');
+  assert.equal(exe.body.mime, 'application/octet-stream', "the sender's claimed type is ignored");
+
+  const disguised = await request(app).post('/api/upload').field('visibility', 'public')
+    .attach('file', Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 7, 0, 0, 1]), { filename: 'holiday.jpg', contentType: 'image/jpeg' });
+  assert.equal(disguised.body.risk.kind, 'mac');
+  assert.match(disguised.body.risk.mismatch, /Named \.jpg/);
+
+  // A zip holding an app bundle: local header, then a central-directory entry.
+  const inner = 'Invoice.app/Contents/MacOS/Invoice';
+  const central = Buffer.alloc(46 + inner.length);
+  central.write('PK\x01\x02', 0, 'latin1');
+  central.writeUInt16LE(inner.length, 28);
+  central.write(inner, 46);
+  const zip = Buffer.concat([Buffer.from('PK\x03\x04', 'latin1'), Buffer.alloc(60), central]);
+  const zipped = await request(app).post('/api/upload').field('visibility', 'public')
+    .attach('file', zip, { filename: 'invoice.zip' });
+  assert.equal(zipped.body.risk.reason, 'archive');
+  assert.equal(zipped.body.risk.inner, 'Invoice.app');
+
+  const plain = await request(app).post('/api/upload').field('visibility', 'public')
+    .attach('file', Buffer.from('%PDF-1.7'), { filename: 'report.pdf' });
+  assert.equal(plain.body.risk, null, 'ordinary files carry no label');
+});
+
+test('the host can refuse programs; nothing of a refused file is kept', async () => {
+  store.setSettings({ blockPrograms: true });
+  try {
+    const before = fs.readdirSync(config.uploadDir).length;
+    const r = await lan(request(app).post('/api/upload')).field('visibility', 'public')
+      .attach('file', Buffer.from('#!/bin/sh\necho hi'), { filename: 'notes.txt' });
+    assert.equal(r.status, 415);
+    assert.equal(fs.readdirSync(config.uploadDir).length, before);
+    const host = await request(app).post('/api/upload').field('visibility', 'public')
+      .attach('file', Buffer.from('MZ'), { filename: 'tool.exe' });
+    assert.equal(host.status, 200, 'the host itself may still share one');
+  } finally { store.setSettings({ blockPrograms: false }); }
+});
+
+test('uploads are refused when the disk would drop below its reserve', async () => {
+  const saved = config.minFreeBytes;
+  config.minFreeBytes = Number.MAX_SAFE_INTEGER;
+  disk.invalidate();
+  try {
+    const r = await lan(request(app).post('/api/upload')).field('visibility', 'public')
+      .attach('file', Buffer.from('x'), { filename: 'x.txt' });
+    assert.equal(r.status, 507);
+  } finally { config.minFreeBytes = saved; disk.invalidate(); }
+});
+
+test('disk: an implausible statfs answer (Bun on macOS) is not trusted', () => {
+  assert.equal(disk.fromStatfs({ bsize: 0, blocks: 4096, bavail: 244139436 }), null);
+  assert.equal(disk.fromStatfs({ bsize: 4096, blocks: 100, bavail: 50 }), 4096 * 50);
+});
+
+test('tokens shaped like object keys are just "not found"', async () => {
+  for (const t of ['__proto__', 'constructor', 'toString']) {
+    assert.equal((await request(app).get(`/d/${t}`)).status, 404);
+    assert.equal((await request(app).delete(`/api/files/${t}`)).status, 404);
+  }
+});
+
+test('a malformed upload is a 400, not a server error', async () => {
+  const r = await lan(request(app).post('/api/upload'))
+    .set('Content-Type', 'multipart/form-data; boundary=zzz')
+    .send('--zzz\r\nContent-Disposition: form-data; name="file"; filename="a.txt"\r\n\r\nunterminated');
+  assert.ok(r.status >= 400 && r.status < 500, `got ${r.status}`);
+});
+
+test('messages are rate-limited per address', async () => {
+  const ip = '10.77.77.77';
+  let last;
+  for (let i = 0; i < 12; i++) last = await lan(request(app).post('/api/notes'), ip).send({ text: `n${i}` });
+  assert.equal(last.status, 429);
+});
+
+test('private mode: only invited devices get in; links and the host still work', async () => {
+  const pub = await request(app).post('/api/upload').field('visibility', 'private')
+    .attach('file', Buffer.from('shared by link'), { filename: 'link.txt' });
+  const host = request.agent(app);
+  assert.equal((await host.post('/api/admin/settings').set('x-meghxl-request', '1').send({ privateMode: true })).status, 200);
+  try {
+    const { code, secret } = (await host.get('/api/admin/join')).body;
+    assert.match(code, /^\d{6}$/);
+
+    assert.equal((await lan(request(app).get('/api/files'))).status, 401, 'a stranger is turned away');
+    assert.equal((await lan(request(app).get('/'))).status, 200, 'but can load the page to join');
+    assert.equal((await lan(request(app).get(`/d/${pub.body.token}`))).status, 200, 'download links still work');
+    assert.equal((await request(app).get('/api/files')).status, 200, 'the host never has to join');
+
+    const wrong = await lan(request(app).post('/api/join')).send({ code: '000000' === code ? '111111' : '000000' });
+    assert.equal(wrong.status, 403);
+
+    const ok = await lan(request(app).post('/api/join')).send({ code });
+    assert.equal(ok.status, 200);
+    const cookie = ok.headers['set-cookie'][0].split(';')[0];
+    assert.match(ok.headers['set-cookie'][0], /HttpOnly; SameSite=Strict/);
+    assert.equal((await lan(request(app).get('/api/files')).set('Cookie', cookie)).status, 200, 'joined');
+
+    const viaLink = await lan(request(app).post('/api/join')).send({ secret });
+    assert.equal(viaLink.status, 200, 'the invite link works too');
+
+    await host.post('/api/admin/join/rotate').set('x-meghxl-request', '1');
+    assert.equal((await lan(request(app).get('/api/files')).set('Cookie', cookie)).status, 401, 'a new code revokes everyone');
+  } finally {
+    await host.post('/api/admin/settings').set('x-meghxl-request', '1').send({ privateMode: false });
+  }
+});
+
+test('private mode: guessing the code is rate-limited', async () => {
+  store.setSettings({ privateMode: true });
+  try {
+    const ip = '10.88.88.88';
+    const codes = [];
+    for (let i = 0; i < 7; i++) codes.push((await lan(request(app).post('/api/join'), ip).send({ code: String(100000 + i) })).status);
+    assert.ok(codes.includes(429), `got ${codes}`);
+  } finally { store.setSettings({ privateMode: false }); }
+});
+
+test('private mode: the WebSocket is closed to devices that have not joined', async () => {
+  store.setSettings({ privateMode: true });
+  const live = await liveHub();
+  try {
+    await assert.rejects(live.connect(), /401|Unexpected server response/);
+  } finally { await live.close(); store.setSettings({ privateMode: false }); }
+});
+
+test('pages get a strict content security policy', async () => {
+  const r = await request(app).get('/');
+  const csp = r.headers['content-security-policy'];
+  assert.match(csp, /script-src 'self'/);
+  assert.match(csp, /object-src 'none'/);
+  assert.match(csp, /frame-ancestors 'none'/);
+});
+
+test('the metadata file is private to this user', { skip: process.platform === 'win32' }, () => {
+  store.flushSync();
+  assert.equal(fs.statSync(config.dataFile).mode & 0o777, 0o600);
+});
+
+test('wrong admin keys lock that address out of key login for a while', async () => {
+  runtime.adminKey = 'the-right-key-123';
+  for (let i = 0; i < 10; i++) {
+    await lan(request(app).get('/api/admin/state')).set('x-admin-key', `wrong-${i}`);
+  }
+  const right = await lan(request(app).get('/api/admin/state')).set('x-admin-key', 'the-right-key-123');
+  assert.equal(right.status, 403, 'even the right key, until the window passes');
 });
 
 test.after(() => {

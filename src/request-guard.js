@@ -207,10 +207,28 @@ function isSameOrigin(req) {
  * Express middleware, first in the chain: forbid framing, refuse rebinding on
  * every route, and refuse cross-site writes.
  */
+// Pages may run only MeghXL's own scripts and talk only to this hub. Every
+// untrusted string is already rendered as text, never HTML; this is the net
+// under that, should a future change ever slip. (Inline styles stay allowed:
+// the pages use style attributes, and CSS can't run code.) Downloads replace
+// it with a stricter sandbox — see routes/files.js.
+const PAGE_CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "connect-src 'self' ws: wss:",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join('; ');
+
 function requestGuard(req, res, next) {
   res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
+  res.setHeader('Content-Security-Policy', PAGE_CSP);
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
 
   const hostname = hostnameOf(req.headers.host);
   if (!isAllowedHost(hostname)) {

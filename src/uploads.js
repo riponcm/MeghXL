@@ -13,14 +13,22 @@ const storage = multer.diskStorage({
   filename: (req, file, cb) => cb(null, storedName(file.originalname)),
 });
 
-const upload = multer({
-  storage,
-  limits: {
-    fileSize: config.maxUploadBytes,
-    files: 1,
-    fields: 10,
-  },
-});
+/**
+ * An upload handler that stops at `maxBytes` — the size cap, or less when the
+ * disk is nearly full (see src/disk.js). Built per request because the limit
+ * moves with free space; multer instances are cheap.
+ */
+function uploadWithin(maxBytes) {
+  return multer({
+    storage,
+    limits: {
+      fileSize: maxBytes,
+      files: 1,
+      fields: 10,
+      fieldSize: 8 * 1024,
+    },
+  });
+}
 
 /**
  * multer/busboy decode the multipart filename as latin1; reinterpret it as utf8
@@ -34,4 +42,4 @@ function decodeOriginalName(name) {
   }
 }
 
-module.exports = { upload, decodeOriginalName };
+module.exports = { uploadWithin, decodeOriginalName };

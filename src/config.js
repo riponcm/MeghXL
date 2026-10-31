@@ -15,6 +15,12 @@ const maxUploadMb = (() => {
   const n = parseInt(process.env.MAX_UPLOAD_MB, 10);
   return Number.isFinite(n) && n > 0 ? n : 0;
 })();
+// Uploads are refused when they would leave less than this much free on the
+// uploads disk, so nobody on the network can fill the host's drive.
+const minFreeMb = (() => {
+  const n = parseInt(process.env.MIN_FREE_MB, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 5 * 1024;
+})();
 const publicBaseUrl = (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '') || null;
 const mdnsName = (process.env.MDNS_NAME || 'meghxl')
   .toLowerCase()
@@ -27,6 +33,8 @@ module.exports = {
   host: '0.0.0.0',
   maxUploadMb, // 0 = unlimited
   maxUploadBytes: maxUploadMb > 0 ? maxUploadMb * 1024 * 1024 : Infinity,
+  minFreeMb,
+  minFreeBytes: minFreeMb * 1024 * 1024,
   uploadDir: path.resolve(process.env.UPLOAD_DIR || './uploads'),
   dataFile: path.resolve(process.env.DATA_FILE || './metadata.json'),
   // Where the dashboard's static files live. Overridable so a packaged build

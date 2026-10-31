@@ -29,15 +29,21 @@ function defaultDeviceName() {
   else if (/Safari\//.test(ua)) br = 'Safari';
   return br ? os + ' · ' + br : os;
 }
+// The device id is a secret between this browser and the hub: it proves which
+// device is asking, and other devices only ever see a derived handle. 128 bits
+// from the browser's CSPRNG (available on plain http://, unlike randomUUID).
 function makeId() {
-  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
-  return 'd-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 function loadDevice() {
   let d = null;
   try { d = JSON.parse(localStorage.getItem(DEVICE_KEY)); } catch { /* ignore */ }
-  if (!d || !d.id) {
-    d = { id: makeId(), name: defaultDeviceName(), kind: deviceKind() };
+  // Before 1.0.2 ids were broadcast to every device, so any that existed then
+  // may have been copied: start a fresh one, keeping the name.
+  if (!d || !d.id || d.v !== 2) {
+    d = { id: makeId(), name: (d && d.name) || defaultDeviceName(), kind: (d && d.kind) || deviceKind(), v: 2 };
     try { localStorage.setItem(DEVICE_KEY, JSON.stringify(d)); } catch { /* ignore */ }
   }
   return d;
@@ -54,6 +60,8 @@ const state = {
   shareBase: location.origin,
   notes: [],
   device: loadDevice(),
+  myHandle: null, // how other devices see this one (sent by the hub)
+  isAdmin: false,
   devices: [],
   deviceCount: 1,
   announcement: null,
@@ -103,6 +111,7 @@ const ICONS = {
   megaphone: '<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
   message: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
 };
 
 function icon(name, size = 18) {
@@ -140,22 +149,92 @@ function fmtCountdown(expiresAt) {
   return `${m}:${String(sec).padStart(2, '0')}`;
 }
 
+// The icon follows the hub's verdict first, then the file's real extension —
+// never the type the sender claimed, which is how a program passes for a photo.
 function fileIconName(file) {
-  const m = file.mime || '';
+  if (file.risk) return 'alert';
   const name = (file.originalName || '').toLowerCase();
-  const ext = name.slice(name.lastIndexOf('.') + 1);
-  if (m.startsWith('image/') || /^(png|jpe?g|gif|webp|svg|bmp|heic|avif)$/.test(ext)) return 'image';
-  if (m.startsWith('video/') || /^(mp4|mov|mkv|avi|webm|m4v)$/.test(ext)) return 'video';
-  if (m.startsWith('audio/') || /^(mp3|wav|flac|aac|ogg|m4a)$/.test(ext)) return 'audio';
-  if (m.includes('pdf') || ext === 'pdf') return 'fileText';
-  if (/zip|compress|tar|rar|7z/.test(m) || /^(zip|tar|gz|tgz|rar|7z|bz2|xz)$/.test(ext)) return 'archive';
-  if (m.startsWith('text/') || /json|xml|javascript/.test(m) ||
-      /^(txt|md|json|xml|js|ts|css|html|csv|ya?ml|sh|py)$/.test(ext)) return 'fileCode';
+  const ext = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : '';
+  if (/^(png|jpe?g|gif|webp|svg|bmp|heic|heif|avif|tiff?)$/.test(ext)) return 'image';
+  if (/^(mp4|mov|mkv|avi|webm|m4v)$/.test(ext)) return 'video';
+  if (/^(mp3|wav|flac|aac|ogg|m4a)$/.test(ext)) return 'audio';
+  if (ext === 'pdf') return 'fileText';
+  if (/^(zip|tar|gz|tgz|rar|7z|bz2|xz)$/.test(ext)) return 'archive';
+  if (/^(txt|md|json|xml|ts|css|html|csv|ya?ml)$/.test(ext)) return 'fileCode';
   return 'file';
+}
+
+// A filename as stem + extension, the extension in its own element so the
+// ellipsis can only ever eat the stem.
+function fileNameEl(name, risky) {
+  const n = String(name || 'file');
+  const dot = n.lastIndexOf('.');
+  const stem = dot > 0 ? n.slice(0, dot) : n;
+  const ext = dot > 0 ? n.slice(dot) : '';
+  return h('div', { class: 'file-name split', title: n },
+    h('span', { class: 'file-stem', text: stem }),
+    ext ? h('span', { class: 'file-ext' + (risky ? ' risky' : ''), text: ext }) : null);
+}
+
+// ---------- programs: warn before saving ----------
+function riskBadge(file) {
+  if (!file.risk) return null;
+  return h('span', { class: 'badge risk', title: file.risk.mismatch || file.risk.label }, icon('alert', 13),
+    file.risk.mismatch ? 'not what its name says' : 'program');
+}
+function riskLine(file) {
+  const r = file.risk;
+  if (!r) return null;
+  let text = r.mismatch || r.label;
+  if (r.inner) text += ` (${r.inner})`;
+  return h('div', { class: 'risk-line', text: text + ' — only open it if you trust the sender.' });
+}
+let riskResolve = null;
+function confirmRisk(file) {
+  const r = file.risk;
+  const from = file.fromName ? `from ${file.fromName}` : 'from someone on this network';
+  let what = r.mismatch ? `${r.mismatch}.` : `It's a ${r.label.toLowerCase()}.`;
+  if (r.inner) what += ` Inside: ${r.inner}.`;
+  $('#risk-title').textContent = r.mismatch ? "This file isn't what its name says" : 'This file is a program';
+  $('#risk-text').textContent = `“${file.originalName}” ${from}. ${what}`;
+  $('#risk-modal').hidden = false;
+  $('#risk-ok').focus();
+  return new Promise((resolve) => { riskResolve = resolve; });
+}
+function closeRisk(ok) {
+  $('#risk-modal').hidden = true;
+  if (riskResolve) { const r = riskResolve; riskResolve = null; r(ok); }
+}
+// A download link that asks first when the file is a program.
+function saveLink(file, label, title) {
+  const a = h('a', { class: 'btn small', href: dlUrl(file.token), download: file.originalName, title }, icon('download', 15), label);
+  if (file.risk) {
+    a.addEventListener('click', async (e) => {
+      if (a.dataset.confirmed) { delete a.dataset.confirmed; return; }
+      e.preventDefault();
+      if (await confirmRisk(file)) { a.dataset.confirmed = '1'; a.click(); }
+    });
+  }
+  return a;
 }
 
 const dlUrl = (token) => `${state.shareBase || location.origin}/d/${token}`;
 const qrSrc = (text) => `/api/qr?text=${encodeURIComponent(text)}`;
+
+// Every API call says which device is asking. The hub uses it to name the
+// sender and to decide who may delete what — never what the request claims.
+async function api(url, opts = {}) {
+  const headers = { 'x-meghxl-device': state.device.id, ...(opts.headers || {}) };
+  if (opts.json !== undefined) headers['Content-Type'] = 'application/json';
+  const r = await fetch(url, { ...opts, headers, body: opts.json !== undefined ? JSON.stringify(opts.json) : opts.body });
+  if (r.status === 401) {
+    const data = await r.clone().json().catch(() => ({}));
+    if (data.join) showJoinGate();
+  }
+  return r;
+}
+
+const isMine = (item) => !!item && (state.isAdmin || (!!state.myHandle && item.ownerHandle === state.myHandle));
 
 let toastTimer = null;
 function toast(msg, kind = '') {
@@ -233,6 +312,7 @@ function closeModal() {
 function fileCard(file, { isPrivate, received }) {
   const url = dlUrl(file.token);
   const badges = [];
+  if (file.risk) badges.push(riskBadge(file));
   if (isPrivate) badges.push(h('span', { class: 'badge private' }, icon('lock', 13), 'private'));
   if (received) badges.push(h('span', { class: 'badge private' }, icon('send', 13), 'from ' + (file.fromName || 'device')));
   if (file.oneTime) badges.push(h('span', { class: 'badge warn' }, icon('flame', 13), 'one-time'));
@@ -243,14 +323,18 @@ function fileCard(file, { isPrivate, received }) {
 
   const actions = received
     ? [
-        h('a', { class: 'btn small', href: url, download: file.originalName, title: 'Save' }, icon('download', 15), 'Save'),
+        saveLink(file, 'Save', 'Save'),
         h('button', { class: 'icon-btn danger', type: 'button', title: 'Dismiss', onclick: () => removeReceived(file.token) }, icon('trash')),
       ]
     : [
-        h('a', { class: 'btn small', href: url, download: file.originalName, title: 'Download' }, icon('download', 15), 'Get'),
+        saveLink(file, 'Get', 'Download'),
         h('button', { class: 'icon-btn', type: 'button', title: 'Copy link', onclick: () => copy(url) }, icon('link')),
         h('button', { class: 'icon-btn', type: 'button', title: 'Show QR', onclick: () => showQrModal('Scan to download', url) }, icon('qr')),
-        h('button', { class: 'icon-btn danger', type: 'button', title: 'Delete', onclick: () => deleteFile(file.token) }, icon('trash')),
+        // Only the device that shared it (or the host) can delete it — the hub
+        // enforces that; this just doesn't offer a button that would fail.
+        isMine(file)
+          ? h('button', { class: 'icon-btn danger', type: 'button', title: 'Delete for everyone', onclick: () => deleteFile(file.token) }, icon('trash'))
+          : null,
       ];
 
   const meta = [h('span', { text: formatSize(file.size) })];
@@ -259,10 +343,11 @@ function fileCard(file, { isPrivate, received }) {
   if (badges.length) meta.push(h('span', { class: 'badges' }, ...badges));
 
   return h('div', { class: 'file-card' },
-    h('div', { class: 'file-icon' }, icon(fileIconName(file), 22)),
+    h('div', { class: 'file-icon' + (file.risk ? ' risk' : '') }, icon(fileIconName(file), 22)),
     h('div', { class: 'file-main' },
-      h('div', { class: 'file-name', title: file.originalName, text: file.originalName }),
+      fileNameEl(file.originalName, !!file.risk),
       h('div', { class: 'file-meta' }, ...meta),
+      riskLine(file),
       file.note ? h('div', { class: 'file-note', text: '“' + file.note + '”' }) : null,
     ),
     h('div', { class: 'file-actions' }, ...actions),
@@ -314,7 +399,7 @@ function renderStaged() {
   list.replaceChildren();
   state.staged.forEach((f, i) => {
     list.append(h('div', { class: 'staged-item' },
-      icon(fileIconName({ originalName: f.name, mime: f.type }), 16),
+      icon(fileIconName({ originalName: f.name }), 16),
       h('span', { class: 'staged-name', title: f.name, text: f.name }),
       h('span', { class: 'staged-size', text: formatSize(f.size) }),
       h('button', { class: 'icon-btn tiny', type: 'button', title: 'Remove', onclick: () => removeStaged(i) }, icon('x', 14)),
@@ -355,9 +440,9 @@ function sentCard(f) {
   if (f.createdAt) meta.push(h('span', { class: 'dotsep', text: fmtWhen(f.createdAt) }));
   meta.push(h('span', { class: 'badges' }, ...badges));
   return h('div', { class: 'file-card' },
-    h('div', { class: 'file-icon' }, icon(fileIconName(f), 22)),
+    h('div', { class: 'file-icon' + (f.risk ? ' risk' : '') }, icon(fileIconName(f), 22)),
     h('div', { class: 'file-main' },
-      h('div', { class: 'file-name', title: f.originalName, text: f.originalName }),
+      fileNameEl(f.originalName, !!f.risk),
       h('div', { class: 'file-meta' }, ...meta),
       f.note ? h('div', { class: 'file-note', text: '“' + f.note + '”' }) : null,
     ),
@@ -416,6 +501,7 @@ function renderDms() {
   $('#dm-empty').hidden = arr.length > 0;
 }
 function dmCard(m) {
+  // fromId is the sender's handle, as the hub knows it — not a claim.
   const canReply = m.fromId && state.devices.some((d) => d.id === m.fromId);
   return h('div', { class: 'note-card dm' },
     h('div', { class: 'dm-main' },
@@ -446,9 +532,9 @@ function renderDevices() {
   const list = $('#device-list');
   list.replaceChildren();
   const me = state.device;
-  const selfFromRoster = state.devices.find((d) => d.id === me.id);
-  list.append(deviceCard(selfFromRoster || { id: me.id, name: me.name, kind: me.kind }, true));
-  const others = state.devices.filter((d) => d.id !== me.id);
+  const selfFromRoster = state.devices.find((d) => d.id === state.myHandle);
+  list.append(deviceCard(selfFromRoster || { id: state.myHandle, name: me.name, kind: me.kind }, true));
+  const others = state.devices.filter((d) => d.id !== state.myHandle);
   for (const d of others) list.append(deviceCard(d, false));
   $('#devices-empty').hidden = others.length > 0;
 }
@@ -490,8 +576,8 @@ function startRename(card, d) {
     done = true;
     const v = input.value.trim().slice(0, 60);
     if (v && v !== d.name) {
-      wsSend({ type: 'rename', deviceId: d.id, name: v });
-      if (d.id === state.device.id) { state.device.name = v; saveDevice(); updateSideMe(); }
+      wsSend({ type: 'rename', name: v });
+      state.device.name = v; saveDevice(); updateSideMe();
     }
     renderDevices();
   };
@@ -513,7 +599,8 @@ function sendToDeviceFlow(d) {
 // ---------- delete ----------
 async function deleteFile(token) {
   try {
-    const r = await fetch(`/api/files/${token}`, { method: 'DELETE' });
+    const r = await api(`/api/files/${token}`, { method: 'DELETE' });
+    if (r.status === 403) return toast('Only the device that shared it, or the host, can delete it', 'danger');
     if (!r.ok && r.status !== 404) throw new Error('delete failed');
     removePublicFile(token);
     removeSentLocal(token);
@@ -527,7 +614,7 @@ function fillDest(sel, includePublic, includeLink) {
   sel.replaceChildren();
   if (includePublic) sel.append(h('option', { value: 'everyone', text: 'Everyone (public)' }));
   if (includeLink) sel.append(h('option', { value: 'link', text: 'Private link (anyone with link)' }));
-  const others = state.devices.filter((d) => d.id !== state.device.id);
+  const others = state.devices.filter((d) => d.id !== state.myHandle);
   if (others.length) {
     const grp = h('optgroup', { label: 'Send to a device' });
     for (const d of others) grp.append(h('option', { value: d.id, text: d.name }));
@@ -595,8 +682,8 @@ function uploadOne(file, opts) {
     uploadEnded();
   };
 
+  // The sender's name comes from the hub's record of this device.
   const fd = new FormData();
-  fd.append('fromName', state.device.name);
   fd.append('expiresInMinutes', opts.expiresInMinutes || '0');
   fd.append('oneTime', String(!!opts.oneTime));
   if (opts.to) fd.append('to', opts.to);
@@ -605,6 +692,7 @@ function uploadOne(file, opts) {
 
   const xhr = new XMLHttpRequest();
   xhr.open('POST', '/api/upload');
+  xhr.setRequestHeader('x-meghxl-device', state.device.id);
   xhr.upload.onprogress = (e) => {
     if (!e.lengthComputable) return;
     const p = Math.round((e.loaded / e.total) * 100);
@@ -619,7 +707,7 @@ function uploadOne(file, opts) {
       addSent({
         token: shape.token, originalName: shape.originalName, size: shape.size, mime: shape.mime,
         expiresAt: shape.expiresAt, oneTime: shape.oneTime, createdAt: shape.createdAt || Date.now(),
-        kind: opts.kind, toName: opts.toName || null, note: opts.note || null,
+        kind: opts.kind, toName: opts.toName || null, note: opts.note || null, risk: shape.risk || null,
       });
       if (opts.to) {
         toast(`Sent to ${opts.toName || 'device'}`, 'good');
@@ -631,7 +719,9 @@ function uploadOne(file, opts) {
       }
     } else {
       let msg = `“${file.name}” didn't upload`;
-      try { msg = `${msg}: ${JSON.parse(xhr.responseText).error}`; } catch { /* keep default */ }
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); msg = `${msg}: ${data.error}`; } catch { /* keep default */ }
+      if (xhr.status === 401 && data.join) showJoinGate();
       toast(msg, 'danger');
     }
   };
@@ -678,11 +768,7 @@ window.addEventListener('beforeunload', (e) => {
 // ---------- messages ----------
 async function sendDm(to, text) {
   try {
-    const r = await fetch('/api/dm', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ to, text, fromName: state.device.name, fromId: state.device.id }),
-    });
+    const r = await api('/api/dm', { method: 'POST', json: { to, text } });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(data.error || 'failed');
     if (data.delivered) toast('Message sent', 'good');
@@ -691,11 +777,8 @@ async function sendDm(to, text) {
 }
 async function sendPublicNote(text) {
   try {
-    const r = await fetch('/api/notes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, fromName: state.device.name }),
-    });
+    const r = await api('/api/notes', { method: 'POST', json: { text } });
+    if (r.status === 429) return toast('Sending too fast — wait a moment', 'danger');
     if (!r.ok) throw new Error('note failed');
     // The server echoes the note back over WebSocket, which is what renders it.
     toast('Posted to everyone', 'good');
@@ -718,13 +801,16 @@ function noteCard(n) {
     ),
     h('div', { class: 'note-actions' },
       h('button', { class: 'icon-btn', type: 'button', title: 'Copy', onclick: () => copy(n.text) }, icon('link')),
-      h('button', { class: 'icon-btn danger', type: 'button', title: 'Delete for everyone', onclick: () => deleteNote(n.id) }, icon('trash')),
+      isMine(n)
+        ? h('button', { class: 'icon-btn danger', type: 'button', title: 'Delete for everyone', onclick: () => deleteNote(n.id) }, icon('trash'))
+        : null,
     ),
   );
 }
 async function deleteNote(id) {
   try {
-    const r = await fetch(`/api/notes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    const r = await api(`/api/notes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (r.status === 403) return toast('Only the device that posted it, or the host, can delete it', 'danger');
     if (!r.ok) throw new Error('delete failed');
   } catch { toast('Could not delete message', 'danger'); }
 }
@@ -738,13 +824,19 @@ function connectWs() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws`);
   ws.onopen = () => {
+    state.everConnected = true;
     reconnectDelay = 1000;
     setOnline(true);
     wsSend({ type: 'identify', deviceId: state.device.id, name: state.device.name, kind: state.device.kind });
   };
-  ws.onclose = () => {
+  ws.onclose = (ev) => {
     setOnline(false);
-    if (state.blocked) return;
+    if (state.blocked || state.joinRequired) return;
+    // A private hub turns away sockets that haven't joined; check before
+    // reconnecting in a loop.
+    if (ev && ev.code === 1006 && !state.everConnected) {
+      api('/api/join/status').then((r) => r.json()).then((s) => { if (!s.joined) showJoinGate(); }).catch(() => {});
+    }
     setTimeout(connectWs, reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 1.6, 15000);
   };
@@ -771,9 +863,12 @@ function connectWs() {
       addPublicFile(payload);
     } else if (type === 'file-removed') {
       removePublicFile(payload.token);
+    } else if (type === 'welcome') {
+      state.myHandle = payload.handle;
+      renderDevices(); renderDestSelectors(); renderPublic(); renderNotes();
     } else if (type === 'roster') {
       state.devices = payload.devices || [];
-      const mine = state.devices.find((d) => d.id === state.device.id);
+      const mine = state.devices.find((d) => d.id === state.myHandle);
       if (mine && mine.name && mine.name !== state.device.name) { state.device.name = mine.name; saveDevice(); updateSideMe(); }
       setDeviceCount(state.devices.length || 1);
       renderDevices();
@@ -799,6 +894,8 @@ function connectWs() {
     } else if (type === 'announce-clear') {
       state.announcement = null;
       renderAnnounceCards();
+    } else if (type === 'join-required') {
+      showJoinGate();
     } else if (type === 'blocked') {
       state.blocked = true;
       setOnline(false);
@@ -918,7 +1015,63 @@ function initModal() {
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
 }
 function initFoot() {
-  $('#join-btn').addEventListener('click', () => showQrModal('Scan to open on another device', state.shareBase || location.origin));
+  $('#join-btn').addEventListener('click', async () => {
+    let url = state.shareBase || location.origin;
+    // On a private hub, the host's QR is an invite: it carries the join
+    // secret in the fragment, which never reaches a server or a log.
+    if (state.isAdmin) {
+      try {
+        const j = await (await fetch('/api/admin/join', { cache: 'no-store' })).json();
+        if (j.privateMode && j.secret) {
+          return showQrModal(`Scan to join — or enter ${j.code}`, `${url}/#join=${j.secret}`);
+        }
+      } catch { /* fall back to the plain link */ }
+    }
+    showQrModal('Scan to open on another device', url);
+  });
+}
+
+// ---------- private mode: joining ----------
+function showJoinGate() {
+  if (state.joinRequired) return;
+  state.joinRequired = true;
+  $('#app-shell').hidden = true;
+  $('#join-gate').hidden = false;
+  try { if (ws) ws.close(); } catch { /* ignore */ }
+  setTimeout(() => $('#join-code').focus(), 50);
+}
+async function submitJoin(body) {
+  const r = await fetch('/api/join', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  if (r.ok) { location.replace(location.pathname + '#dashboard'); location.reload(); return true; }
+  const data = await r.json().catch(() => ({}));
+  $('#join-err').textContent = data.error || 'Could not join.';
+  return false;
+}
+function initJoin() {
+  const submit = () => {
+    const code = $('#join-code').value.replace(/\D/g, '');
+    if (code.length !== 6) { $('#join-err').textContent = 'Enter the 6-digit code.'; return; }
+    submitJoin({ code });
+  };
+  $('#join-submit').addEventListener('click', submit);
+  $('#join-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+}
+// An invite link: #join=<secret>. Use it once, then take it off the address
+// bar so it doesn't linger in history or a screenshot.
+async function consumeInvite() {
+  const m = /^#join=([A-Za-z0-9_-]{10,64})$/.exec(location.hash);
+  if (!m) return false;
+  history.replaceState(null, '', location.pathname + '#dashboard');
+  return submitJoin({ secret: m[1] });
+}
+
+// ---------- programs dialog ----------
+function initRisk() {
+  $('#risk-ok').addEventListener('click', () => closeRisk(true));
+  $('#risk-modal').addEventListener('click', (e) => { if (e.target.closest('[data-risk-cancel]')) closeRisk(false); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#risk-modal').hidden) closeRisk(false); });
 }
 // Show the "Host console" nav entry only where the server says this device is
 // admin (the host PC). Pure UX: /admin and /api/admin/* are gated server-side
@@ -927,19 +1080,22 @@ async function revealAdminNav() {
   try {
     const res = await fetch('/api/admin/whoami', { cache: 'no-store' });
     const who = await res.json();
+    state.isAdmin = !!who.isAdmin;
     $('#nav-admin').hidden = !who.isAdmin;
+    if (state.isAdmin) { renderPublic(); renderNotes(); }
   } catch { /* leave hidden */ }
 }
 
 async function loadInitial() {
   try {
-    const filesRes = await fetch('/api/files');
+    const filesRes = await api('/api/files');
+    if (filesRes.status === 401) return;
     const { files } = await filesRes.json();
     for (const f of files) state.publicFiles.set(f.token, f);
     renderPublic();
   } catch { /* WS will catch us up */ }
   try {
-    const { notes } = await (await fetch('/api/notes')).json();
+    const { notes } = await (await api('/api/notes')).json();
     state.notes = notes || [];
     renderNotes();
   } catch { /* WS will catch us up */ }
@@ -953,17 +1109,27 @@ initSend();
 initModal();
 initFoot();
 initAbout();
+initJoin();
+initRisk();
 updateSideMe();
 renderAnnounceCards();
 renderDevices();
 renderDestSelectors();
 renderStaged();
 renderNotes();
-showView(location.hash.slice(1) || 'dashboard');
-window.addEventListener('hashchange', () => showView(location.hash.slice(1) || 'dashboard'));
-loadInitial();
-revealAdminNav();
-connectWs();
+
+(async function boot() {
+  if (await consumeInvite()) return; // reloads once joined
+  showView(location.hash.slice(1) || 'dashboard');
+  window.addEventListener('hashchange', () => showView(location.hash.slice(1) || 'dashboard'));
+  try {
+    const status = await (await fetch('/api/join/status', { cache: 'no-store' })).json();
+    if (!status.joined) return showJoinGate();
+  } catch { /* older hub or offline: carry on */ }
+  await revealAdminNav();
+  loadInitial();
+  connectWs();
+})();
 
 // Live countdowns; prune expired items when they hit zero.
 setInterval(() => {

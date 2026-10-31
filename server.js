@@ -5,6 +5,7 @@ const http = require('node:http');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const express = require('express');
+const multer = require('multer');
 
 const config = require('./src/config');
 const store = require('./src/store');
@@ -17,7 +18,11 @@ const createFilesRouter = require('./src/routes/files');
 const createNotesRouter = require('./src/routes/notes');
 const createAdminRouter = require('./src/routes/admin');
 const createUpdateRouter = require('./src/routes/update');
+const createJoinRouter = require('./src/routes/join');
 const { requestGuard } = require('./src/request-guard');
+const { isAdmin } = require('./src/admin-auth');
+const { deviceOf, remoteIp } = require('./src/identity');
+const join = require('./src/join');
 
 const SWEEP_INTERVAL_MS = 60 * 1000;
 const IDLE_TIMEOUT_MS = 2 * 60 * 1000;
@@ -42,17 +47,24 @@ function tuneServer(server) {
 function buildApp(hub) {
   const app = express();
   app.disable('x-powered-by');
-  app.enable('trust proxy'); // correct req.protocol/host behind a reverse proxy / VPN
+  // Believe X-Forwarded-* (for req.protocol, req.ip) only from a reverse proxy
+  // on this machine — from anyone else they're just claims.
+  app.set('trust proxy', 'loopback');
 
   // First, before any route or static file: refuse DNS rebinding everywhere and
   // cross-site writes (CSRF). See src/request-guard.js.
   app.use(requestGuard);
+  app.use(blockGuard);
   app.use(express.json({ limit: '16kb' }));
+  // Private mode (off unless the host turns it on): invited devices only.
+  app.use(join.gate(isAdmin));
 
   const files = createFilesRouter(hub);
   const notes = createNotesRouter(hub);
   const admin = createAdminRouter({ hub, files });
   const update = createUpdateRouter();
+  const joinRoutes = createJoinRouter();
+  app.use(joinRoutes.router);
   app.use(files.router);
   app.use(notes.router);
   app.use(admin.router);
@@ -78,7 +90,17 @@ function buildApp(hub) {
   // Upload-size + fallback error handler (must be last).
   app.use((err, req, res, next) => {
     if (err && err.code === 'LIMIT_FILE_SIZE') {
+      if (req.meghxlLimit === 'disk') {
+        return res.status(507).json({ error: "The host computer is running out of disk space, so it can't take this file right now." });
+      }
       return res.status(413).json({ error: `File too large (max ${config.maxUploadMb} MB)` });
+    }
+    // Malformed uploads and bodies are the client's problem: a 400, without
+    // filling the log with stack traces anyone on the network could trigger.
+    if (err && (err instanceof multer.MulterError || /^Malformed|^Unexpected end of form|^Multipart/i.test(err.message || '') ||
+        (err.status >= 400 && err.status < 500))) {
+      if (res.headersSent) return next(err);
+      return res.status(err.status >= 400 && err.status < 500 ? err.status : 400).json({ error: 'Bad request' });
     }
     console.error(err);
     if (res.headersSent) return next(err);
@@ -86,6 +108,16 @@ function buildApp(hub) {
   });
 
   return { app, files };
+}
+
+/**
+ * A device the host blocked gets nothing — not just its live connection, but
+ * every page, upload, message and download. The host itself is never blocked.
+ */
+function blockGuard(req, res, next) {
+  if (!store.isBlocked(deviceOf(req), remoteIp(req)) || isAdmin(req)) return next();
+  if (req.path.startsWith('/api/')) return res.status(403).json({ error: 'This device is blocked by the host.', blocked: true });
+  return res.status(403).type('text/plain').send('This device is blocked by the host.');
 }
 
 function printBanner() {
@@ -133,6 +165,8 @@ function main() {
   const hub = createHub(server);
   const { app, files } = buildApp(hub);
   server.on('request', app);
+
+  files.cleanOrphans().then((n) => { if (n) console.log(`[sweep] removed ${n} orphaned upload file(s)`); });
 
   const sweep = setInterval(() => {
     const n = files.purgeExpired();

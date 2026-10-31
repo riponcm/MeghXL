@@ -8,12 +8,24 @@ const mime = require('mime-types');
 const config = require('../config');
 const store = require('../store');
 const qr = require('../qr');
+const disk = require('../disk');
 const { token } = require('../ids');
-const { upload, decodeOriginalName } = require('../uploads');
+const { uploadWithin, decodeOriginalName } = require('../uploads');
 const { shareDownloadUrl } = require('../baseUrl');
+const { isAdmin } = require('../admin-auth');
+const { deviceOf, handleOf, sameId, remoteIp } = require('../identity');
+const { cleanText, cleanFilename } = require('../text');
+const { classify, inSentence } = require('../filetype');
+const { rateLimit, createCounter } = require('../limits');
 
 const VALID_VISIBILITY = new Set(['public', 'private']);
 const MAX_EXPIRY_MINUTES = 7 * 24 * 60; // 7 days
+const TOKEN_RE = /^[A-Za-z0-9_-]{22}$/;
+// Files MeghXL itself wrote (see storedName in ids.js) — the only ones the
+// orphan sweep may ever delete, whatever else lives in the uploads folder.
+const STORED_NAME_RE = /^[0-9a-f]{32}(\.[a-z0-9]{1,12})?$/;
+const ORPHAN_AGE_MS = 60 * 60 * 1000;
+const MAX_UPLOADS_PER_IP = 4;
 
 /** Resolve a stored file's absolute path, refusing anything outside uploadDir. */
 function storedPath(storedName) {
@@ -44,25 +56,36 @@ function toPublicShape(f) {
     oneTime: f.oneTime,
     downloadCount: f.downloadCount,
     fromName: f.fromName || null,
+    // Lets the device that shared it (and only that one) recognise it as its
+    // own and offer Delete. A handle, never the device id — see identity.js.
+    ownerHandle: handleOf(f.ownerId) || null,
+    risk: f.risk || null,
     downloadUrl: shareDownloadUrl(f.token),
   };
-}
-
-/** Strip control characters, trim, and cap length (for client-supplied fields). */
-function sanitize(s, max) {
-  let out = '';
-  for (const ch of String(s == null ? '' : s)) if (ch.charCodeAt(0) >= 32) out += ch;
-  return out.trim().slice(0, max);
 }
 
 /** RFC 5987 Content-Disposition with a safe ASCII fallback (no header injection). */
 function contentDisposition(name) {
   const fallback = name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_') || 'download';
-  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+  // encodeURIComponent leaves ' ( ) * alone; RFC 5987 doesn't allow them raw.
+  const encoded = encodeURIComponent(name).replace(/['()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}
+
+function unlinkPath(p) {
+  if (p) fs.promises.unlink(p).catch(() => {});
 }
 
 module.exports = function createFilesRouter(hub) {
   const router = express.Router();
+  const uploadsInFlight = createCounter(MAX_UPLOADS_PER_IP);
+
+  // Anything that isn't shaped like one of our tokens is simply not found —
+  // including "__proto__" and friends, which never reach the store.
+  router.param('token', (req, res, next, value) => {
+    if (!TOKEN_RE.test(value)) return res.status(404).type('text/plain').send('Not found');
+    next();
+  });
 
   /** Remove a file (metadata + disk); broadcast removal if it was public. */
   function purgeFile(tok) {
@@ -94,12 +117,38 @@ module.exports = function createFilesRouter(hub) {
       unlinkQuiet(f.storedName);
       if (f.visibility === 'public') hub.broadcast('file-removed', { token: f.token });
     }
+    if (removed.length) disk.invalidate();
     return removed.length;
+  }
+
+  /**
+   * Delete upload files no record points to — left behind when the process
+   * died mid-write or a metadata save failed. Only names MeghXL generates, and
+   * only ones older than an hour, so an upload in progress is never touched.
+   */
+  async function cleanOrphans() {
+    const known = new Set(store.listAllFiles().map((f) => f.storedName));
+    let names = [];
+    try { names = await fs.promises.readdir(config.uploadDir); } catch { return 0; }
+    let removed = 0;
+    for (const name of names) {
+      if (!STORED_NAME_RE.test(name) || known.has(name)) continue;
+      const p = storedPath(name);
+      try {
+        const st = await fs.promises.stat(p);
+        if (!st.isFile() || Date.now() - st.mtimeMs < ORPHAN_AGE_MS) continue;
+        await fs.promises.unlink(p);
+        removed++;
+      } catch { /* gone already */ }
+    }
+    return removed;
   }
 
   // GET /api/qr?text=... — a QR PNG for arbitrary text, so each client renders
   // links for its OWN origin. Pure encoding, no fetching (no SSRF surface).
-  router.get('/api/qr', async (req, res) => {
+  // Rendering costs CPU, so it's rate-limited like any other write-ish route.
+  const qrLimit = rateLimit({ burst: 60, perMinute: 120, keyOf: remoteIp });
+  router.get('/api/qr', qrLimit, async (req, res) => {
     const text = String(req.query.text || '');
     if (!text || text.length > 1024) return res.status(400).type('text/plain').send('bad text');
     try {
@@ -113,8 +162,30 @@ module.exports = function createFilesRouter(hub) {
   });
 
   // POST /api/upload --------------------------------------------------------
-  router.post('/api/upload', upload.single('file'), (req, res) => {
+  // Before a byte is stored: a few uploads at a time per address, and only as
+  // much as the disk can take while keeping its reserve (see src/disk.js).
+  async function admitUpload(req, res, next) {
+    const ip = remoteIp(req);
+    if (!uploadsInFlight.tryAcquire(ip)) {
+      return res.status(429).json({ error: 'Too many uploads at once from this device — wait for one to finish.' });
+    }
+    res.on('close', () => uploadsInFlight.release(ip));
+
+    const allowance = await disk.uploadAllowance();
+    const spaceBound = allowance < config.maxUploadBytes;
+    req.meghxlLimit = spaceBound ? 'disk' : 'cap';
+    const declared = Number(req.headers['content-length']);
+    if (allowance <= 0 || (spaceBound && Number.isFinite(declared) && declared > allowance + 1024 * 1024)) {
+      return res.status(507).json({ error: "The host computer is running out of disk space, so it can't take this file right now." });
+    }
+    uploadWithin(allowance).single('file')(req, res, next);
+  }
+
+  router.post('/api/upload', admitUpload, (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    disk.invalidate();
+    const admin = isAdmin(req);
+    const deviceId = deviceOf(req);
 
     const oneTime = req.body.oneTime === 'true' || req.body.oneTime === 'on';
 
@@ -124,16 +195,25 @@ module.exports = function createFilesRouter(hub) {
       expiresAt = Date.now() + Math.min(mins, MAX_EXPIRY_MINUTES) * 60 * 1000;
     }
 
-    // A `to` (target deviceId) means a direct, device-to-device send: not listed
-    // anywhere, delivered only to that device's live sockets.
-    const to = sanitize(req.body.to, 64);
-    // Who shared it — shown on the dashboard ("by <name>") and on direct sends.
-    const fromName = sanitize(req.body.fromName, 60) || (to ? 'Someone' : null);
-    let visibility = 'private';
+    // A `to` (a device's handle) means a direct, device-to-device send: not
+    // listed anywhere, delivered only to that device's live sockets.
+    const to = cleanText(req.body.to, 40);
     let toDeviceId = null;
     if (to) {
+      toDeviceId = hub.idOfHandle(to);
+      if (!toDeviceId) {
+        unlinkPath(req.file.path);
+        return res.status(404).json({ error: 'That device is no longer connected.' });
+      }
+    }
+    // Who shared it — shown on the dashboard ("by <name>") and on direct sends.
+    // Taken from the hub's own record of the sending device, never from the
+    // request, so nobody can send as someone else (or as the host).
+    const fromName = admin ? 'Host'
+      : (deviceId && store.getDeviceName(deviceId)) || (to ? 'Someone' : null);
+    let visibility = 'private';
+    if (to) {
       visibility = 'direct';
-      toDeviceId = to;
       // Honor a user-set expiry; otherwise self-clean after 24h.
       if (expiresAt == null) expiresAt = Date.now() + 24 * 60 * 60 * 1000;
     } else if (VALID_VISIBILITY.has(req.body.visibility)) {
@@ -148,21 +228,34 @@ module.exports = function createFilesRouter(hub) {
       }
     }
 
-    const originalName = decodeOriginalName(req.file.originalname) || 'file';
+    const originalName = cleanFilename(decodeOriginalName(req.file.originalname));
+
+    // Programs, scripts, installers — and anything whose content contradicts
+    // its name. Labelled for everyone; refused if the host has said so.
+    const risk = classify(req.file.path, originalName, req.file.size);
+    if (risk && store.getSettings().blockPrograms === true && !admin) {
+      unlinkPath(req.file.path);
+      return res.status(415).json({ error: `This hub doesn't accept programs (${inSentence(risk.label)}). Ask the host if you need to share one.` });
+    }
+
     const meta = {
       token: token(),
       originalName,
       storedName: req.file.filename,
       size: req.file.size,
-      mime: req.file.mimetype || mime.lookup(originalName) || 'application/octet-stream',
+      // From the name, never the sender's claim — and nothing that would
+      // invite a browser to treat a program as something else.
+      mime: risk ? 'application/octet-stream' : (mime.lookup(originalName) || 'application/octet-stream'),
       visibility,
       createdAt: Date.now(),
       expiresAt,
       oneTime,
       downloadCount: 0,
-      uploader: req.ip,
+      uploader: remoteIp(req),
+      ownerId: deviceId,
       toDeviceId,
       fromName,
+      risk,
     };
     store.addFile(meta);
 
@@ -170,9 +263,9 @@ module.exports = function createFilesRouter(hub) {
     if (visibility === 'public') {
       hub.broadcast('file-added', shape);
     } else if (visibility === 'direct') {
-      hub.sendToDevice(toDeviceId, 'file-sent', { ...shape, fromName });
+      hub.sendToDevice(to, 'file-sent', shape);
     }
-    res.json({ ...shape, fromName });
+    res.json(shape);
   });
 
   // GET /api/files — public, non-expired only -------------------------------
@@ -280,11 +373,17 @@ module.exports = function createFilesRouter(hub) {
   });
 
   // DELETE /api/files/:token ------------------------------------------------
+  // Only the device that shared a file, or the host, may delete it.
   router.delete('/api/files/:token', (req, res) => {
-    const f = purgeFile(req.params.token);
+    const f = store.getFile(req.params.token);
     if (!f) return res.status(404).json({ error: 'Not found' });
+    if (!isAdmin(req) && !sameId(deviceOf(req), f.ownerId)) {
+      return res.status(403).json({ error: 'Only the device that shared this file, or the host, can delete it.' });
+    }
+    purgeFile(f.token);
+    disk.invalidate();
     res.json({ ok: true });
   });
 
-  return { router, purgeFile, purgeExpired };
+  return { router, purgeFile, purgeExpired, cleanOrphans };
 };
