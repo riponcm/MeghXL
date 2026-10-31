@@ -43,9 +43,33 @@ struct Server {
     child: Mutex<Option<CommandChild>>,
 }
 
-/// The destination we assigned to the download currently in flight. macOS
-/// never reports the saved path back on `Finished`, so we keep our own copy.
-struct Downloads(Mutex<Option<PathBuf>>);
+/// The destinations we assigned to downloads in flight, keyed by download URL
+/// (the one value both `Requested` and `Finished` carry). macOS never reports
+/// the saved path back on `Finished`, so we keep our own copy. Each URL holds a
+/// queue because the same file can be fetched twice before the first finishes.
+#[derive(Default)]
+struct Downloads(Mutex<HashMap<String, Vec<PathBuf>>>);
+
+impl Downloads {
+    fn insert(&self, url: &str, path: PathBuf) {
+        self.0.lock().unwrap().entry(url.to_owned()).or_default().push(path);
+    }
+
+    /// Claim the destination recorded for `url`: the one matching the path the
+    /// platform reported, if any, else the oldest.
+    fn take(&self, url: &str, reported: Option<&Path>) -> Option<PathBuf> {
+        let mut map = self.0.lock().unwrap();
+        let queue = map.get_mut(url)?;
+        let i = reported
+            .and_then(|r| queue.iter().position(|p| p == r))
+            .unwrap_or(0);
+        let path = queue.remove(i);
+        if queue.is_empty() {
+            map.remove(url);
+        }
+        Some(path)
+    }
+}
 
 /// The port the server ended up on, so menu handlers can build URLs.
 struct AppPort(u16);
@@ -101,6 +125,61 @@ fn unique_path(dir: &Path, name: &str) -> PathBuf {
     candidate
 }
 
+/// Tag a received file as downloaded from elsewhere, so the OS runs its usual
+/// checks (Gatekeeper, SmartScreen, Office Protected View) before it can be
+/// opened. Files come from other devices on the network and may be programs in
+/// disguise; MeghXL never opens them, but without this mark the OS would trust
+/// them like a file the user made. Best effort: a failure here must not turn a
+/// finished transfer into an error.
+#[cfg(target_os = "macos")]
+fn mark_downloaded(path: &Path, _url: &str) {
+    const ATTR: &str = "com.apple.quarantine";
+    // WebKit's networking process may already have quarantined the file,
+    // possibly with stricter flags. Never replace an existing mark.
+    if matches!(xattr::get(path, ATTR), Ok(Some(_))) {
+        return;
+    }
+    // flags;time;agent;event-uuid. 0083 is what Safari writes for downloads.
+    // An empty UUID only means there is no entry in the Launch Services
+    // quarantine history; Gatekeeper still checks the file.
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let _ = xattr::set(path, ATTR, format!("0083;{secs:x};MeghXL;").as_bytes());
+}
+
+#[cfg(windows)]
+fn mark_downloaded(path: &Path, url: &str) {
+    let mut stream = path.as_os_str().to_owned();
+    stream.push(":Zone.Identifier");
+    let stream = PathBuf::from(stream);
+    // WebView2 may have written its own zone. Keep it if it is already
+    // Internet (3) or Restricted (4); never downgrade.
+    if let Ok(existing) = fs::read_to_string(&stream) {
+        let zone = existing
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("ZoneId="))
+            .and_then(|z| z.trim().parse::<u8>().ok());
+        if zone.is_some_and(|z| z >= 3) {
+            return;
+        }
+    }
+    // ZoneId=3 (Internet) on purpose: the sender is a LAN address, which
+    // Windows could otherwise class as Intranet and skip SmartScreen and
+    // Protected View for.
+    let origin = tauri::Url::parse(url)
+        .map(|u| u.origin().ascii_serialization())
+        .unwrap_or_default();
+    let body = format!("[ZoneTransfer]\r\nZoneId=3\r\nReferrerUrl={origin}\r\nHostUrl={url}\r\n");
+    // Fails on FAT/exFAT, which have no alternate data streams. Nothing to do.
+    let _ = fs::write(&stream, body);
+}
+
+/// Linux has no OS-enforced equivalent that file managers honour.
+#[cfg(not(any(target_os = "macos", windows)))]
+fn mark_downloaded(_path: &Path, _url: &str) {}
+
 /// The dashboard window. Files are always written to disk — this window never
 /// renders a transferred file, whatever its type.
 fn create_main_window(app: &tauri::AppHandle, port: u16) -> tauri::Result<WebviewWindow> {
@@ -116,7 +195,7 @@ fn create_main_window(app: &tauri::AppHandle, port: u16) -> tauri::Result<Webvie
         .disable_drag_drop_handler()
         .on_download(move |_webview, event| {
             match event {
-                DownloadEvent::Requested { destination, .. } => {
+                DownloadEvent::Requested { url, destination } => {
                     let name = destination
                         .file_name()
                         .map(|n| n.to_string_lossy().into_owned())
@@ -125,14 +204,24 @@ fn create_main_window(app: &tauri::AppHandle, port: u16) -> tauri::Result<Webvie
                     let _ = fs::create_dir_all(&dir);
                     let target = unique_path(&dir, &name);
                     if let Some(state) = dl.try_state::<Downloads>() {
-                        *state.0.lock().unwrap() = Some(target.clone());
+                        state.insert(url.as_str(), target.clone());
                     }
                     *destination = target;
                 }
-                DownloadEvent::Finished { success, .. } => {
-                    let saved = dl
+                DownloadEvent::Finished { url, path, success } => {
+                    // Always claim our entry so the map doesn't grow. Windows
+                    // and Linux report the real path; macOS never does, so
+                    // there we rely on the entry alone.
+                    let assigned = dl
                         .try_state::<Downloads>()
-                        .and_then(|s| s.0.lock().unwrap().take());
+                        .and_then(|s| s.take(url.as_str(), path.as_deref()));
+                    let saved = path.or(assigned);
+                    // With no path and no entry we don't know which file this
+                    // was, so nothing is marked. Even a failed transfer may
+                    // leave a partial file behind; mark that too.
+                    if let Some(p) = saved.as_deref().filter(|p| p.is_file()) {
+                        mark_downloaded(p, url.as_str());
+                    }
                     let body = match (&saved, success) {
                         (Some(p), true) => format!("Saved to {}", p.display()),
                         (None, true) => "Saved".to_string(),
@@ -605,7 +694,7 @@ fn main() {
                     app.manage(Server {
                         child: Mutex::new(child),
                     });
-                    app.manage(Downloads(Mutex::new(None)));
+                    app.manage(Downloads::default());
                     app.manage(AppPort(port));
                     create_main_window(&handle, port)?;
                     build_app_menu(&handle)?;

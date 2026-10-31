@@ -22,6 +22,11 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 serde_json = "1"
 
+# Quarantine flag on received files. Already in the tree via the updater (tar),
+# so this adds no new crates.
+[target.'cfg(target_os = "macos")'.dependencies]
+xattr = "1"
+
 [profile.release]
 codegen-units = 1
 lto = true
