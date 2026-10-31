@@ -70,7 +70,12 @@ jobs:
           cache: npm
           cache-dependency-path: desktop/package-lock.json
 
+      # Pinned: the server is compiled with Bun, and a release shouldn't change
+      # compiler behind our back. Bun 1.4.4's Linux build made the AppImage
+      # tool's library scan (ldd) fail. Move this on purpose, after testing.
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -166,16 +171,6 @@ jobs:
             exit 1
           fi
 
-      # linuxdeploy (which builds the AppImage) ships an old `strip` that fails
-      # on newer binaries, such as recent Bun builds of the server — the build
-      # then stops with "failed to run linuxdeploy". Skipping strip only costs
-      # a little size. --verbose shows linuxdeploy's own output if it fails.
-      - name: Linux packaging options
-        if: runner.os == 'Linux'
-        run: |
-          echo "NO_STRIP=true" >> "$GITHUB_ENV"
-          echo "LINUX_ARGS=--verbose" >> "$GITHUB_ENV"
-
       # ---- Windows: Azure Artifact Signing (account matily-signing, profile
       # matily-public), the same as NextGenUp. release-signing.json wires the
       # sign command; it's only passed when the Azure secrets exist, so the
@@ -204,7 +199,7 @@ jobs:
           # GITHUB_ENV from the steps above — only when they're configured.
         with:
           projectPath: desktop
-          args: --target ${{ matrix.target }} ${{ env.WIN_SIGN_ARGS }} ${{ env.LINUX_ARGS }}
+          args: --target ${{ matrix.target }} ${{ env.WIN_SIGN_ARGS }}
           # Only set on a tag push, which is what makes tauri-action publish.
           tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
           releaseName: MeghXL __VERSION__
