@@ -9,6 +9,8 @@ should mirror the entry below it.
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-10-31
+
 ### Security
 - **One oversized WebSocket message crashed the server.** Any device on the
   network could take the hub down with a single message over 100 MB. Messages
@@ -110,7 +112,20 @@ should mirror the entry below it.
 - In the desktop app, two downloads at once could swap paths in the "Saved to"
   notice.
 
+### Changed
+- **Signed releases.** The macOS app is signed and notarized by Apple; the
+  Windows app, its server and both installers are signed (Azure Artifact
+  Signing). Each release build checks every signature before publishing.
+- **Linux ships as `.deb` and `.rpm`**, no longer AppImage: building an AppImage
+  corrupts the Bun-compiled server (tauri-apps/tauri#5189). Release builds pin
+  Bun 1.3.14.
+
 ### Upgrading
+- **Linux AppImage users:** install the `.deb` or `.rpm` once by hand; the
+  in-app updater then keeps it current. (The 1.0.1 AppImage keeps working.)
+- **Desktop app, first launch on a computer that wasn't the host:** MeghXL asks
+  whether this computer is the host or joins one. A computer that already has
+  MeghXL data stays the host automatically.
 - Scripts that post notes, messages or direct sends: the sender is now taken from
   the `x-meghxl-device` header (a device that has identified over WebSocket);
   `fromName` / `fromId` in the body are ignored. Direct sends and messages are

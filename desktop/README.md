@@ -80,7 +80,12 @@ the same names.
 
 ## Signing
 
-Local builds are unsigned. Distributed builds should be signed and notarized —
-otherwise macOS shows an "unidentified developer" warning and Windows shows a
-SmartScreen prompt. See Tauri's
-[signing guide](https://tauri.app/distribute/sign/).
+Local builds are unsigned. Release builds are signed in CI
+(`.github/workflows/release.yml`): macOS with a Developer ID certificate and Apple
+notarization (`APPLE_*` secrets), Windows through Azure Artifact Signing
+(`AZURE_*` secrets, `src-tauri/release-signing.json`). Each step switches on only
+when its secrets exist, and the workflow then verifies every signature.
+
+Linux ships as `.deb` and `.rpm`. AppImage is skipped: building one runs
+linuxdeploy, which rewrites the Bun-compiled server and breaks it
+([tauri-apps/tauri#5189](https://github.com/tauri-apps/tauri/issues/5189)).

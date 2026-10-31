@@ -124,15 +124,16 @@ browser. No Node.js required.
 | macOS (Apple Silicon) | [Download .dmg](https://github.com/riponcm/MeghXL/releases/latest) | M1/M2/M3/M4 Macs |
 | macOS (Intel) | [Download .dmg](https://github.com/riponcm/MeghXL/releases/latest) | x64 build |
 | Windows 10/11 (x64) | [Download installer](https://github.com/riponcm/MeghXL/releases/latest) | NSIS `.exe` or `.msi` |
-| Linux (x64) | [Download .AppImage / .deb](https://github.com/riponcm/MeghXL/releases/latest) | Most distributions |
+| Linux (x64) | [Download .deb / .rpm](https://github.com/riponcm/MeghXL/releases/latest) | Debian/Ubuntu, Fedora/openSUSE |
 
 Every installer is fully self-contained — the server is compiled in, so there is no
 runtime to install. Open it and the dashboard appears; a tray icon keeps it running.
 The app checks for updates when you ask it to, and installs signed releases in place.
 
-macOS note: builds are not notarized with Apple; on first launch, right-click the app
-and choose **Open**. Windows shows SmartScreen — **More info → Run anyway**. Building
-from source avoids both.
+The macOS app is signed with an Apple Developer ID and notarized by Apple, and the
+Windows installers and app are signed through Azure Artifact Signing, so both open
+without "unidentified developer" warnings. (A newly signed Windows publisher can still
+see a SmartScreen notice until enough people have installed it.)
 
 ## How to use it
 
@@ -347,9 +348,8 @@ Building it needs [Rust](https://rustup.rs) and [Bun](https://bun.sh) (plus
 Xcode Command Line Tools on macOS). Tauri cannot cross-compile between macOS and
 Windows — build each on its own machine, or use a CI matrix.
 
-> The released binaries are currently **unsigned**, so macOS shows an
-> "unidentified developer" warning on first launch (right-click → **Open**), and
-> Windows shows a SmartScreen prompt. Building from source avoids both.
+> Your own local builds are unsigned, so macOS and Windows warn on first launch;
+> the released binaries are signed (see above).
 
 ## Roadmap
 
