@@ -6,7 +6,6 @@
   <a href="https://github.com/riponcm/MeghXL/releases/latest"><img src="https://img.shields.io/github/v/release/riponcm/MeghXL?style=for-the-badge&color=6c5ce7&label=Release" alt="Latest release"></a>
   <a href="https://github.com/riponcm/MeghXL/releases"><img src="https://img.shields.io/github/downloads/riponcm/MeghXL/total?style=for-the-badge&color=00cec9&label=Downloads" alt="Total downloads"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-00b894?style=for-the-badge" alt="Apache 2.0 license"></a>
-  <a href="https://github.com/riponcm/MeghXL/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/riponcm/MeghXL/ci.yml?style=for-the-badge&label=Build" alt="Build status"></a>
   <a href="https://github.com/riponcm/MeghXL/stargazers"><img src="https://img.shields.io/github/stars/riponcm/MeghXL?style=for-the-badge&color=fdcb6e&label=Stars" alt="GitHub stars"></a>
 </p>
 

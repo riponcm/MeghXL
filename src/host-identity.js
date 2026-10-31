@@ -67,6 +67,9 @@ function unbase32(text) {
       bits -= 8;
     }
   }
+  // The last character's spare bits are always zero; anything else is a typo
+  // that would otherwise decode to the same bytes.
+  if (value & ((1 << bits) - 1)) return null;
   return Buffer.from(out);
 }
 
