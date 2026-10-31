@@ -84,10 +84,38 @@ computer has to be on. In exchange, nobody else installs anything.
 ## Preview
 
 <p align="center">
-  <img src="assets/preview-dashboard.png" alt="MeghXL dashboard — drag and drop sharing with live file list and join QR" width="49%">
-  <img src="assets/preview-console.png" alt="MeghXL host console — connected devices, stats, and announcements" width="49%">
+  <a href="assets/screenshots/dashboard.png"><img src="assets/screenshots/dashboard.png" alt="MeghXL dashboard: shared files from several devices, a disguised program flagged, messages with a host badge, and an announcement" width="100%"></a><br><sub><b>The board.</b> Files from every device in one place — and a "PDF" that is really a Windows program, flagged before anyone opens it.</sub>
 </p>
-<p align="center"><sub>The shared dashboard (left) and the host console (right).</sub></p>
+
+<p align="center">
+  <a href="assets/screenshots/phones.png"><img src="assets/screenshots/phones.png" alt="MeghXL on two iPhones: the shared board, and an upload paused after the Wi-Fi dropped" width="85%"></a><br><sub><b>Phones need no app.</b> The same board in Safari — and when the Wi-Fi drops mid-upload, it pauses and carries on where it stopped.</sub>
+</p>
+
+<details>
+<summary><b>More screenshots</b> — program warnings, the host console, private mode, desktop pairing, the connection test</summary>
+<br>
+
+<p align="center">
+  <a href="assets/screenshots/warning.png"><img src="assets/screenshots/warning.png" alt="Warning dialog: this file isn't what its name says, named .pdf but a Windows program" width="100%"></a><br><sub><b>Disguised programs get caught.</b> Saving one asks first.</sub>
+</p>
+
+<p align="center">
+  <a href="assets/screenshots/console.png"><img src="assets/screenshots/console.png" alt="Host console overview: a guest iPad waiting to be let in, device stats and connected devices" width="100%"></a><br><sub><b>The host console.</b> A guest waits to be let in; every device at a glance.</sub>
+</p>
+
+<p align="center">
+  <a href="assets/screenshots/private-mode.png"><img src="assets/screenshots/private-mode.png" alt="Private mode: invite QR code and 6-digit join code on the host, and the join screen on a phone" width="100%"></a><br><sub><b>Private mode</b> for shared Wi-Fi: join by QR code or a 6-digit code.</sub>
+</p>
+
+<p align="center">
+  <a href="assets/screenshots/desktop-pairing.png"><img src="assets/screenshots/desktop-pairing.png" alt="Desktop app pairing with the host fingerprint, and the warning when another computer pretends to be the host" width="100%"></a><br><sub><b>One host, and it proves it.</b> Pair once; impostors are refused.</sub>
+</p>
+
+<p align="center">
+  <a href="assets/screenshots/connection-test.png"><img src="assets/screenshots/connection-test.png" alt="Connection test: the host console shows the phone reached it, and the phone shows a confirmation" width="100%"></a><br><sub><b>"Can phones reach this computer?"</b> One scan tells you — and what to change if not.</sub>
+</p>
+
+</details>
 
 ## Features
 
