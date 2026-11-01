@@ -1,7 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The desktop shell drives everything from Rust; the dashboard itself needs no Tauri APIs.",
+  "description": "The desktop shell drives everything from Rust. The dashboard needs one Tauri API: the shell and opener plugins each inject a script that intercepts every target=_blank link and sends it to their open command, so without these the About links do nothing. Both scopes are limited to http, https, mailto and tel. The dashboard is served by the local hub, which Tauri counts as a remote URL, hence the remote block.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "remote": { "urls": ["http://127.0.0.1:*", "http://localhost:*"] },
+  "permissions": ["core:default", "shell:allow-open", "opener:default"]
 }

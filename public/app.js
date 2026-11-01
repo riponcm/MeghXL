@@ -1115,7 +1115,7 @@ function inlineMd(text) {
   }
   return frag;
 }
-function renderNotes(el, md) {
+function renderReleaseNotes(el, md) {
   el.replaceChildren();
   let list = null;
   for (const raw of md.split(/\r?\n/)) {
@@ -1146,7 +1146,7 @@ async function checkForUpdates() {
   // the signature and installs. The app catches this navigation; the page stays.
   if (window.__MEGHXL_DESKTOP__ && window.__MEGHXL_DESKTOP__.updater) {
     status.className = 'about-tag';
-    status.textContent = 'Checking… MeghXL will show a window if there is an update to install.';
+    status.textContent = 'Checking… MeghXL will show the result in a window.';
     location.assign('/desktop/check-updates');
     return;
   }
@@ -1172,7 +1172,7 @@ async function checkForUpdates() {
       status.textContent = `Version ${d.latest} is available — you have ${d.current}.`;
       link.href = d.url;
       link.hidden = false;
-      renderNotes(notes, d.notes || 'No release notes.');
+      renderReleaseNotes(notes, d.notes || 'No release notes.');
       notes.hidden = false;
       $('#about-badge').hidden = false;
     } else {

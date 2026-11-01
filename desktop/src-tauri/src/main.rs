@@ -286,8 +286,10 @@ fn create_main_window(app: &tauri::AppHandle) -> tauri::Result<WebviewWindow> {
             }
             allowed
         })
-        // target="_blank" links (GitHub, the update download) ask for a new
-        // window, which on_navigation never sees; without this they do nothing.
+        // window.open() and any target="_blank" link the plugins' scripts don't
+        // catch ask for a new window, which on_navigation never sees. (The shell
+        // and opener plugins intercept ordinary _blank links in the page itself;
+        // capabilities/default.json lets them through.)
         .on_new_window(move |url, _features| {
             if matches!(url.scheme(), "http" | "https") {
                 let _ = popup.opener().open_url(url.to_string(), None::<&str>);
@@ -668,7 +670,9 @@ fn check_for_updates(app: &tauri::AppHandle) {
         let notify = |title: &str, body: String| {
             let _ = app.notification().builder().title(title).body(body).show();
         };
-
+        let tell = |title: &str, body: String| {
+            app.dialog().message(body).title(title).show(|_| {});
+        };
         let updater = match app.updater() {
             Ok(u) => u,
             Err(e) => return notify("MeghXL", format!("Update check unavailable: {e}")),
@@ -717,11 +721,13 @@ fn check_for_updates(app: &tauri::AppHandle) {
                             app.restart();
                         }
                     }
-                    Err(e) => notify("MeghXL", format!("Update failed: {e}")),
+                    Err(e) => tell("Update failed", format!("The update could not be installed: {e}")),
                 }
             }
-            Ok(None) => notify("MeghXL", "You're running the latest version.".into()),
-            Err(e) => notify("MeghXL", format!("Could not check for updates: {e}")),
+            // Someone clicked to get here, so answer in a window: a notification
+            // alone is easy to miss, or switched off.
+            Ok(None) => tell("No update available", format!("You're running the latest version of MeghXL ({}).", app.package_info().version)),
+            Err(e) => tell("Could not check for updates", e.to_string()),
         }
     });
 }
