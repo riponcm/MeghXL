@@ -9,6 +9,25 @@ should mirror the entry below it.
 
 ## [Unreleased]
 
+## [1.1.2] — 2026-11-01
+
+### Fixed
+- **The desktop app's About links really open now.** 1.1.1 said it fixed them,
+  but the clicks were being caught by a script the app framework injects into
+  the page, which asked the app for a permission it had never been given. The
+  permission is now granted, limited to http, https, mailto and tel links.
+- **The Host console link, file list and live updates were missing in 1.1.1.**
+  A function added for the formatted release notes shared a name with the one
+  that draws the notes board, so the page stopped halfway through starting.
+- **Check for updates answered silently.** When you were already up to date, the
+  desktop app only sent a notification, easy to miss or switched off. It now
+  answers in a window, and so do errors.
+
+### Changed
+- Desktop framework updated (Tauri 2.12, updater 2.14), which closes the
+  remaining dependency security alerts.
+- The release build gives up after 45 minutes instead of hanging.
+
 ## [1.1.1] — 2026-10-31
 
 ### Fixed
@@ -234,7 +253,8 @@ First public release.
   disk instead of ever rendering them.
 - No telemetry. The only outbound request is a manual update check.
 
-[Unreleased]: https://github.com/riponcm/MeghXL/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/riponcm/MeghXL/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/riponcm/MeghXL/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/riponcm/MeghXL/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/riponcm/MeghXL/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/riponcm/MeghXL/compare/v1.0.0...v1.0.1

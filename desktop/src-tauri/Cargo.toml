@@ -1,6 +1,6 @@
 [package]
 name = "meghxl-desktop"
-version = "1.1.1"
+version = "1.1.2"
 description = "MeghXL — transfer anything across your local network"
 authors = ["Matily"]
 license = "Apache-2.0"

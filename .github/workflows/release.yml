@@ -21,6 +21,7 @@ jobs:
   build:
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     env:
       # Platform signing switches on only once its secrets exist, so the
       # workflow keeps working (unsigned) before they're added.
@@ -307,6 +308,7 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     steps:
       - name: Drop the generic linux-x86_64 entry
         env:
