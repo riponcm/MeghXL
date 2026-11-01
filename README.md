@@ -486,22 +486,26 @@ drop.
   <a href="https://github.com/riponcm/MeghXL/releases"><img alt="Total downloads" src="https://img.shields.io/github/downloads/riponcm/MeghXL/total?style=for-the-badge&logo=github&label=downloads&color=36d399&labelColor=14141a"></a>
 </p>
 
-A full **video tutorial is coming soon**. Sharing MeghXL with your team is the best thanks.
+The 51-second tour at the top shows the basics; a full **video tutorial is coming
+soon**. Sharing MeghXL with your team is the best thanks.
 
 ## Updates and privacy
 
-MeghXL makes **one** outbound request in its entire lifetime, and only when you
-press **Check for updates** in the About page or the desktop tray: a single `GET`
-to the GitHub releases API to compare version numbers. It sends no identifiers,
-no filenames and no usage data, and the answer is cached for an hour. Nothing
-runs on a timer or at launch.
+MeghXL contacts the internet only when you press **Check for updates** — in the
+About page, the desktop app's menu bar menu or its tray icon. Nothing runs on a
+timer or at launch, and no request carries identifiers, filenames or usage data.
+
+- **In a browser**, the hub makes a single `GET` to the GitHub releases API to
+  compare version numbers; the answer is cached for an hour.
+- **In the desktop app**, the app fetches the release manifest from GitHub, shows
+  you what's new, and downloads the package only if you click **Install**.
 
 Desktop updates are **signature-verified** — the app installs only a package
 signed with the project's key, checked against the public key compiled into the
 bundle, so a compromised download cannot push you malicious code.
 
-Don't want it at all? Delete `src/routes/update.js` and its `app.use` line in
-`server.js`. Nothing else depends on it.
+Don't want the browser check at all? Delete `src/routes/update.js` and its
+`app.use` line in `server.js`. Nothing else depends on it.
 
 ## How secure is MeghXL?
 
