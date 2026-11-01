@@ -14,6 +14,10 @@
   Your team's own private transfer cloud. No accounts, no third-party cloud, no file-size limits.
 </p>
 
+https://github.com/user-attachments/assets/272ffbba-21cd-4f99-8cff-8ca0bc8d0811
+
+<p align="center"><sub>51-second tour: a phone sends a 240 MB video to a PC on the same Wi-Fi — nothing installed on the phone.</sub></p>
+
 <p align="center">
   <code>#file-transfer</code> &nbsp;<code>#self-hosted</code> &nbsp;<code>#local-network</code> &nbsp;<code>#intranet</code> &nbsp;<code>#zero-config</code> &nbsp;<code>#privacy-first</code>
 </p>
