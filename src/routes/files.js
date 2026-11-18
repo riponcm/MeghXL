@@ -114,8 +114,10 @@ function refuseEarly(req, res, status, error, declared) {
   res.status(status).json({ error });
 }
 
+// Resolves once the file is gone (or was never there). Callers that promise
+// the sender "nothing was kept" await it before answering; the rest let it run.
 function unlinkPath(p) {
-  if (p) fs.promises.unlink(p).catch(() => {});
+  return p ? fs.promises.unlink(p).catch(() => {}) : Promise.resolve();
 }
 
 module.exports = function createFilesRouter(hub) {
@@ -320,10 +322,13 @@ module.exports = function createFilesRouter(hub) {
     // its name. Labelled for everyone; refused if the host has said so.
     const verdict = classify(filePath, originalName, size);
     if (verdict && store.getSettings().blockPrograms === true && !admin) {
-      unlinkPath(filePath);
       const what = verdict.quiet ? "archives it can't look inside" : `programs (${inSentence(verdict.label)})`;
       activity.log('upload-refused', `Refused “${originalName}”: ${verdict.quiet ? "archive it can't look inside" : inSentence(verdict.label)}`, { ip: remoteIp(req), noisy: true });
-      res.status(415).json({ error: `This hub doesn't accept ${what}. Ask the host if you need to share one.` });
+      // Answer once the file is really gone, so "nothing was kept" holds the
+      // moment the sender reads it.
+      unlinkPath(filePath).then(() => {
+        res.status(415).json({ error: `This hub doesn't accept ${what}. Ask the host if you need to share one.` });
+      });
       return false;
     }
     // Quiet verdicts ("couldn't look inside") only matter to the setting above.
@@ -403,7 +408,7 @@ module.exports = function createFilesRouter(hub) {
     sessions.delete(s.id);
     reservedBytes -= s.reserved;
     s.reserved = 0;
-    if (removeFile) unlinkPath(s.path);
+    return removeFile ? unlinkPath(s.path) : Promise.resolve();
   }
 
   router.param('uploadId', (req, res, next, value) => {
@@ -506,8 +511,8 @@ module.exports = function createFilesRouter(hub) {
     finalize(req, res, { filePath: dest, fileName, size: s.size, rawName: s.name, fields: s.fields });
   });
 
-  router.delete('/api/upload/:uploadId', (req, res) => {
-    dropSession(req.uploadSession);
+  router.delete('/api/upload/:uploadId', async (req, res) => {
+    await dropSession(req.uploadSession);
     res.json({ ok: true });
   });
 
