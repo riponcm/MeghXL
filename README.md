@@ -184,6 +184,36 @@ opens a browser — or, on other computers, the same app joins the host.
 
 [Release notes](https://github.com/riponcm/MeghXL/releases/tag/v1.1.2) · [All releases](https://github.com/riponcm/MeghXL/releases)
 
+> ### ⚠️ Install MeghXL only from this page or [matily.org](https://matily.org/meghxl/)
+>
+> MeghXL is **not** distributed anywhere else — no other website, download portal,
+> app store, forum or file-sharing site. **Do not install a copy someone sent you**,
+> even a friend: a file that passed through another computer may have been changed
+> on the way, and it would still look and work like MeghXL. Download it yourself,
+> from here.
+>
+> Every genuine build is **signed and notarized by Ripon Chandra Malo**. Check
+> before you open it:
+>
+> - **Mac:** right-click the app → *Get Info*. Under *Signed by* it must say
+>   `Developer ID Application: Ripon Chandra Malo (F4D87C58C9)`.
+> - **Windows:** right-click the installer → *Properties* → *Digital Signatures*.
+>   The signer must be **Ripon Chandra Malo**, and the signature must be valid.
+>
+> **About the Windows "Windows protected your PC" notice.** Our signing
+> certificate is new, so SmartScreen may still call MeghXL an *unrecognized app*
+> until enough people have installed it. That notice alone is **not** a sign of a
+> fake. Click *More info* and look at the **Publisher** line: if it says
+> **Ripon Chandra Malo**, the file is genuine and *Run anyway* is safe. If it says
+> **Unknown publisher**, the file is not signed by us.
+>
+> If the signer's name is different, the signature is missing or broken, or the
+> publisher is unknown — **don't install it**, delete it, and
+> [tell us](https://github.com/riponcm/MeghXL/issues) where it came from.
+>
+> We cannot take responsibility for copies obtained anywhere other than this
+> repository and matily.org.
+
 Every installer is self-contained — the server is compiled in, so there is no
 runtime to install (26–40 MB). Open it and the dashboard appears; a tray icon keeps
 it running.
@@ -536,6 +566,7 @@ publicly in [security advisories](https://github.com/riponcm/MeghXL/security/adv
 | Disguise a program as a photo | Real extension always shown; content checked; a warning before saving; optional refusal |
 | Read a private file | 128-bit unguessable links; files are never listed |
 | Tamper with an update | Updates install only if signed with the project's key |
+| Hand you a fake MeghXL | Install only from this repo or matily.org — never a forwarded copy; every genuine build is signed and notarized by Ripon Chandra Malo, and the desktop app checks the host's signing key |
 
 **What it doesn't do — stated plainly:** traffic on the LAN is plain HTTP (not
 encrypted), so someone able to intercept your network could read transfers; a
